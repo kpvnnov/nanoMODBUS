@@ -38,7 +38,7 @@ extern TIM_HandleTypeDef htim6;
 
 /* USER CODE END Private defines */
 
-void MX_TIM6_Init(void);
+void MX_TIM6_Init(uint16_t);
 
 /* USER CODE BEGIN Prototypes */
 

@@ -4,27 +4,27 @@
  * @file           : main.c
  * @brief          : Main program body
  ******************************************************************************
-  nanoModbus stm32 expamle irq
-  Copyright (C) 2025 Peter Kostenko <kpvnnov@gmail.com> https://t.me/kpvnnov
+ nanoModbus stm32 expamle irq
+ Copyright (C) 2025 Peter Kostenko <kpvnnov@gmail.com> https://t.me/kpvnnov
  
-    MIT License
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
+ MIT License
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
 
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
 
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
  *
  ******************************************************************************
  */
@@ -85,6 +85,8 @@
 uint16_t Speed = 9600;
 nmbs_t nmbs;
 
+uint32_t FastModbus_Prescaler,  Arbitrage_Period,Window_Period, Normal_Prescaler, Normal_Period;
+
 // A single nmbs_bitfield variable can keep 2000 coils
 nmbs_bitfield server_coils = { 0 };
 uint16_t server_registers[REGS_ADDR_MAX + 1] = { 0 };
@@ -100,6 +102,61 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+//чтобы не терять время на математические операции коэффициенты делителя рассчитать заранее
+/* вычисляем две переменных
+ 1)начало арбитража
+ x=SystemCoreClock/(Speed*10);
+ Prescaler=x-1;
+
+ Period при скорости 38400 и ниже = используется k=36
+ y(второй делитель)=SystemCoreClock*k/(Speed*x)
+ если скорость выше 38400
+ то расчёт k=8*speed/100000+1
+ Period=y-1
+
+ 2)длина арбитражного окна
+
+ используется коэффициент k=12 + ROUNDUP(50 мкс/длительность одного бода в мкс)
+ k=12+5*speed/100000+1
+ Prescaler и Period рассчитываются аналогично арбитражному
+
+ x(первый делитель)=SystemCoreClock/(Speed*10);
+ Prescaler=x-1;
+ y(второй делитель )=SystemCoreClock*k/(Speed*x)
+ Period=y-1
+ */
+
+void compute_timer() {
+
+	uint32_t x, y;
+	uint32_t k;
+
+
+	Normal_Prescaler = SystemCoreClock/(1000000UL/50UL)-1;
+    if (Speed>19200){
+    	Normal_Period = (1750/50)-1;
+    }else{
+    	Normal_Period = ((7UL*1000000UL*11UL/(50UL*2UL))/Speed); //-1 absent for rounding up
+    }
+
+
+	x=SystemCoreClock/(uint32_t)(Speed*10);
+	FastModbus_Prescaler=x-1;
+    //вычисляем начало арбитража
+	if (Speed<=38400){
+    	k=36;
+    }else{
+    	k=8UL*Speed/100000UL+1;
+    }
+    y=SystemCoreClock*k/(uint32_t)(Speed*x);
+    Arbitrage_Period=y-1;
+    //длина арбитражного окна
+    k=12UL+5UL*Speed/100000UL+1;
+    y=SystemCoreClock*k/(uint32_t)(Speed*x);
+    Window_Period=y-1;
+
+}
+
 // set counter of received symbols
 void msg_buf_set(nmbs_t *nmbs, uint32_t length) {
 	nmbs->msg.buf_rec = length;
@@ -114,6 +171,27 @@ bool msg_buf_inc(nmbs_t *nmbs) {
 		return false;
 	nmbs->msg.buf_rec++;
 	return true;
+}
+typedef enum {
+	fast_mb_none = 0x00,	//продолжаем обычный приём
+	fast_mb_begin_scan = 0x01,
+	fast_mb_next_scan = 0x02,
+	fast_mb_answer_scan = 0x03,
+	fast_mb_end_scan = 0x04,
+} fast_mb_command;
+
+bool check_fast_modbus(nmbs_t *nmbs) {
+	if (nmbs->msg.buf_rec != 5)
+		return fast_mb_none;
+	if (nmbs->msg.buf[0]!=0xFD || nmbs->msg.buf[1]!=0x46)
+		return fast_mb_none;
+	switch (nmbs->msg.buf[2]) {
+	case 0x01:
+		return fast_mb_begin_scan;
+	default:
+		return fast_mb_none;
+	}
+	return fast_mb_none;
 }
 
 // reset counter received symbols
@@ -191,6 +269,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
 		}
 		if (msg_buf_inc(&nmbs)) {
+			switch (check_fast_modbus(&nmbs)) {
+			}
 			//Receive next symbol
 			if (HAL_UART_Receive_IT(&huart2, &nmbs.msg.buf[nmbs.msg.buf_rec], 1)
 					!= HAL_OK) {
@@ -304,7 +384,7 @@ int main(void) {
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
 	MX_USART2_UART_Init();
-	MX_TIM6_Init();
+	MX_TIM6_Init(0);
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
 
