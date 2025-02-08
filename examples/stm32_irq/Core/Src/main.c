@@ -179,6 +179,7 @@ typedef enum {
 	fast_mb_next_scan = 0x02, //продолжить сканирование
 	fast_mb_answer_scan = 0x03,
 	fast_mb_end_scan = 0x04,
+	fast_mb_emulate = 0x08, //субкоманда эмуляции стандартных запросов
 } fast_mb_command;
 
 typedef enum {
@@ -192,38 +193,86 @@ typedef enum {
 modbus_mode fast_mb_mode; //что делаем при приемё команды fastmodbus
 uint16_t arbitrage_window; //текущий номер арбитражного окна
 uint32_t arbitrage_word; //32 битное арбитражное слово
-uint32_t fastmodbus_address = 4265607340; //(dec) или 0xFE4000AC 32 битный уникальный fastmodbus адрес устройства
+//uint32_t fastmodbus_address = 4265607340; //(dec) или 0xFE4000AC 32 битный уникальный fastmodbus адрес устройства
 
 bool i_am_not_scaned = false;
 bool arbitrage_loss; //признак проигранного арбитража
 
-void make_arbitrage_data() {
+void make_arbitrage_data(nmbs_t *nmbs) {
 	if (i_am_not_scaned) {
-		arbitrage_word = 0b0110 << 24 + (fastmodbus_address & 0x0FFFFFFF);
+		arbitrage_word = (0b0110 << 24)
+				+ (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
 	} else {
 		//а у отсканированных — с низким (0b1111)
-		arbitrage_word = 0b1111 << 24 + (fastmodbus_address & 0x0FFFFFFF);
+		arbitrage_word = (0b1111 << 24)
+				+ (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
 	}
 
 }
 
-fast_mb_command check_fast_modbus(nmbs_t *nmbs) {
-	if (nmbs->msg.buf_rec != 5)
+fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
+	if (length && nmbs->msg.buf_rec != length)
 		return fast_mb_none;
+#ifdef NMBS_DEBUG
+	//printf("got %d bytes\n",length);
+#endif
 	if (nmbs->msg.buf[0] != 0xFD || nmbs->msg.buf[1] != 0x46)
 		return fast_mb_none;
+#ifdef NMBS_DEBUG
+	//printf("got broadcast\n");
+#endif
 	switch (nmbs->msg.buf[2]) {
 	case 0x01: //Функция начала сканирования - 0x01
-		if (nmbs->msg.buf[3] == 0x13 && nmbs->msg.buf[4] == 0x19) { //проверка crc
+#ifdef NMBS_DEBUG
+		//printf("fb func 1\n");
+#endif
+		if (nmbs->msg.buf[3] == 0x13 && nmbs->msg.buf[4] == 0x90) { //проверка crc
+#ifdef NMBS_DEBUG
+			printf("begin fmb scan\n");
+#endif
 			return fast_mb_begin_scan;
 		}
 		break;
 	case 0x02: // Функция продолжения сканирования - 0x02
+#ifdef NMBS_DEBUG
+		printf("fb func 2\n");
+#endif
+
 		if (nmbs->msg.buf[3] == 0x53 && nmbs->msg.buf[4] == 0x91) { //проверка crc
+#ifdef NMBS_DEBUG
+			printf("next fmb scan\n");
+#endif
 			return fast_mb_next_scan;
 		}
 		break;
+	case 0x08: // субкоманда эмуляции стандартных запросов
+		if (nmbs->msg.buf_rec < 7) { //если приняли недостаточно байтов, чтобы проверить серийный номер
+			return fast_mb_none;
+		}
+		//проверяем наш ли это серийный номер
+		if (((nmbs->msg.buf[3] << 24) & (nmbs->msg.buf[4] << 16)
+				& (nmbs->msg.buf[5] << 8) & (nmbs->msg.buf[6]))
+				!= nmbs->msg.fastmodbus_address)
+			return fast_mb_none;
+
+		/*		if (((nmbs->msg.fastmodbus_address >> 24) & 0xFF) != nmbs->msg.buf[3]) {
+		 return fast_mb_none;
+		 }
+		 if (((nmbs->msg.fastmodbus_address >> 16) & 0xFF) != nmbs->msg.buf[4]) {
+		 return fast_mb_none;
+		 }
+		 if (((nmbs->msg.fastmodbus_address >> 8) & 0xFF) != nmbs->msg.buf[5]) {
+		 return fast_mb_none;
+		 }
+		 if (((nmbs->msg.fastmodbus_address >> 0) & 0xFF) != nmbs->msg.buf[6]) {
+		 return fast_mb_none;
+		 }*/
+		return fast_mb_emulate;
+		//break;
 	default:
+#ifdef NMBS_DEBUG
+		printf("normal fb\n");
+#endif
 		return fast_mb_none;
 	}
 	return fast_mb_none;
@@ -303,6 +352,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 			//подумаю завтра что делать в таких случаях
 			break;
 		case mb_run_arbitrage://передавали Доминантное состояние (передаётся значением 0xFF)
+		case mb_next_arbitrage:	//передавали Доминантное состояние (передаётся значением 0xFF)
 			//надо перейти на приём
 			fastmodbus_RecieveMode();
 			break;
@@ -314,9 +364,6 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart == &huart2) {
-#ifdef NMBS_DEBUG
-		//printf("%ld uart2\n", HAL_GetTick());
-#endif
 		//restart 3.5 timer
 
 		/* Generate an update event to reload the Prescaler
@@ -328,11 +375,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			/* Clear the update flag */
 			CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
 		}
+#ifdef NMBS_DEBUG
+		printf("%ld uart %02x\n", HAL_GetTick(),
+				nmbs.msg.buf[nmbs.msg.buf_rec]);
+#endif
 		switch (fast_mb_mode) {
 		case mb_none:	//продолжаем обычный приём
 
 			if (msg_buf_inc(&nmbs)) {
-				switch (check_fast_modbus(&nmbs)) {
+				switch (check_fast_modbus(&nmbs, 5)) {	//проверяем 5 байт
 				case fast_mb_none: //продолжаем приём данных как обычно
 					break;
 					//Начало сканирования
@@ -371,7 +422,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					}
 					arbitrage_window = 0;
 					arbitrage_loss = false;
-					make_arbitrage_data(); //сгенерировать арбитражное 32 битное значение
+					make_arbitrage_data(&nmbs); //сгенерировать арбитражное 32 битное значение
 					break;
 				default:
 					Error_Handler();
@@ -388,15 +439,40 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			}
 			break;
 		case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт уже приняли
+#ifdef NMBS_DEBUG
+			printf("mb_begin_scan error\n");
+#endif
 			//подумаю завтра что делать в таких случаях
-			break;
+			//break;
 		case mb_next_scan://ахринеть, таймаут к началу арбитража продолжить сканирование ещё не кончился, а байт уже приняли
 			//подумаю завтра что делать в таких случаях
+#ifdef NMBS_DEBUG
+			printf("mb_next_scan error\n");
+#endif
+			//пока заглатываем символ и бежим дальше
+			//Receive next symbol
+			if (HAL_UART_Receive_IT(&huart2, &nmbs.msg.buf[nmbs.msg.buf_rec], 1)
+					!= HAL_OK) {
+				NMBS_DEBUG_PRINT("HAL_UART_Receive_IT error\n");
+
+				Error_Handler();
+			}
+
 			break;
 		case mb_run_arbitrage:
+		case mb_next_arbitrage:
 			if (arbitrage_window == 0) { //тоже странная ситуация.
 				//таймаут к началу арбитража ещё не кончился, а байт уже приняли
 				//подумаю завтра что делать в таких случаях
+				//пока заглатываем символ и бежим дальше
+				//Receive next symbol
+				if (HAL_UART_Receive_IT(&huart2,
+						&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
+					NMBS_DEBUG_PRINT("HAL_UART_Receive_IT error\n");
+
+					Error_Handler();
+				}
+
 			} else {
 				// arbitrage_window - 1 = это номер арбитражного окна, в котором приняли байт
 				if (arbitrage_word & (0x8000000 >> (arbitrage_window - 1))) { //1 - рециссивное состояние — это молчание в
@@ -414,6 +490,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					Error_Handler();
 				}
 			} else { //overflow input buffer
+#ifdef NMBS_DEBUG
+				printf("fmb overflow\n");
+#endif
 				nano_RecieveMode();
 			}
 
@@ -424,21 +503,28 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 }
 
+nmbs_error answer_scan(nmbs_t *nmbs);
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM6) {
 		uint32_t Size = msg_buf_get(&nmbs);
-		if (Size) { //number of received symbol
+		switch (fast_mb_mode) {
+		case mb_none:	//продолжаем обычный приём
+			//нет смысла запускать процедуру обработки модбас при пустом входном буфере
+			if (Size) { //number of received symbol
 #ifdef NMBS_DEBUG
-			//printf("%ld timer\n", HAL_GetTick());
+				printf("%ld normal timer\n", HAL_GetTick());
 #endif
-			switch (fast_mb_mode) {
-			case mb_none:	//продолжаем обычный приём
 				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
 					// Starting Error
 					Error_Handler();
 				}
-
+				//чуть позже эту порнографию перенести внутрь обработки протокола
+				//switch (check_fast_modbus(&nmbs,0)) { //надо проверить не пришла ли расширенная команда fastmodbus
+				//case fast_mb_emulate: //субкоманда эмуляции стандартных запросов, обращение по серийному номеру
+				//	break;
+				//default: //обычные команды
 				nmbs_error res_poll = nmbs_server_poll(&nmbs);
 				if (NMBS_ERROR_NONE != res_poll) {
 					NMBS_DEBUG_PRINT(
@@ -452,12 +538,54 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					}
 					nano_RecieveMode();
 				}
+				//break;
+				//}
+			}
+			break;
+		case mb_begin_scan: //сработал таймер арбитража команды начала сканирования
+		case mb_next_scan: //сработал таймер арбитража команды продолжения сканирования
+			//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
+			//stop timer arbitrage interval
+			if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+				// Starting Error
+				Error_Handler();
+			}
+			if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
+				Error_Handler();
+			}
+			MX_TIM6_Init(2);	//инициализируем таймер на арбитражное окно
+			/* Generate an update event to reload the Prescaler
+			 and the repetition counter (only for advanced timer) value immediately */
+			htim6.Instance->EGR = TIM_EGR_UG;
 
-				break;
-			case mb_begin_scan: //сработал таймер арбитража команды начала сканирования
-			case mb_next_scan: //сработал таймер арбитража команды продолжения сканирования
-				//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
-				//stop timer arbitrage interval
+			/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
+			if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+				/* Clear the update flag */
+				CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+			}
+			if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+				/* Starting Error */
+				Error_Handler();
+			}
+			if (fast_mb_mode == mb_begin_scan) {
+#ifdef NMBS_DEBUG
+				printf("%ld run timer\n", HAL_GetTick());
+#endif
+
+				fast_mb_mode = mb_run_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
+			} else {
+#ifdef NMBS_DEBUG
+				printf("%ld next timer\n", HAL_GetTick());
+#endif
+				fast_mb_mode = mb_next_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
+			}
+
+			//break; он здесь специально не нужен, чтобы обработать первое арбитражное окно
+			//в следующем case сразу после окончания таймера начала арбитража
+		case mb_run_arbitrage:
+		case mb_next_arbitrage:
+			if (arbitrage_window == 32) { //закончился арбитраж
+				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
 					// Starting Error
 					Error_Handler();
@@ -465,7 +593,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
 					Error_Handler();
 				}
-				MX_TIM6_Init(2);	//инициализируем таймер на арбитражное окно
+				MX_TIM6_Init(0);	//инициализируем таймер на нормальный модбас
+
 				/* Generate an update event to reload the Prescaler
 				 and the repetition counter (only for advanced timer) value immediately */
 				htim6.Instance->EGR = TIM_EGR_UG;
@@ -479,95 +608,116 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					/* Starting Error */
 					Error_Handler();
 				}
-				if (fast_mb_mode == mb_begin_scan) {
-					fast_mb_mode = mb_run_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
+
+#ifdef NMBS_DEBUG
+				printf("%ld end arb\n", HAL_GetTick());
+#endif
+				arbitrage_window++;
+				break;
+			} else if (arbitrage_window >= 33) { //таймер 3.5 секунды после того как закончился арбитраж сработал
+				//stop timer 3.5 word
+				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+					// Starting Error
+					Error_Handler();
+				}
+#ifdef NMBS_DEBUG
+				printf("%ld end arb tim\n", HAL_GetTick());
+#endif
+				fast_mb_mode = mb_none; //после ответа (если он будет) продолжаем обычный приём
+				if (!arbitrage_loss) { // если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
+					if (i_am_not_scaned) { //если мы ещё не отсканированы, то отвечаем такой командой
+						//(1 байт) 0xFD широковещательный адрес
+						//(1 байт) 0x46 команда работы с расширенными функциями
+						//(1 байт) 0x03 субкоманда - признак ответа на сканирование
+						//(4 байта) серийный номер устройства (big endian)
+						//(1 байт) modbus адрес устройства
+						//(2 байта) контрольная сумма
+						i_am_not_scaned = false;	//устройство отсканировано
+						answer_scan(&nmbs);
+					} else { //если мы отсканированы и выиграли арбитраж (скорее всего отвечаем на команду продолжения сканирования)
+						// все отсканированные устройства отправляют одно и то же сообщение «Конец сканирования»
+						//(1 байт) 0xFD широковещательный адрес
+						//(1 байт) 0x46 команда работы с расширенными функциями
+						//(1 байт) 0x04 — субкоманда завершения сканирования;
+						//(2 байта) xD3 0x93 — контрольная сумма.
+						end_scan(&nmbs);
+					}
 				} else {
-					fast_mb_mode = mb_next_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
-
-				}
-
-				//break; он здесь специально не нужен, чтобы обработать первое арбитражное окно
-				//в следующем case сразу после окончания таймера начала арбитража
-			case mb_run_arbitrage:
-			case mb_next_arbitrage:
-				//Во время арбитража устройство-слейв передаёт по одному биту друг за другом арбитражное слово,
-				//которое состоит из приоритета и уникального идентификатора.
-				//
-				//Приоритет сообщения — это 4 бита: 0 (0b0000) — наивысший, 15 (0b1111) — низший
-				//
-				//(28-битное число) младшие 28 бит уникального серийного номера
-				//
-				//Опрос событий — modbus-адрес (8-битное число). Устройства на шине уже настроены, коллизии адресов отсутствуют,
-				//нет смысла тратить время на арбитраж по серийным номерам.
-				//
-				//В итоге арбитражное слово имеет длину 12 бит (4+8) при событиях или 32 бита (4+28) при сканировании
-
-				//Ноль передаётся доминантным состоянием, а единица рецессивным — это значит, что арбитраж всегда выигрывают устройства,
-				//у которых значение арбитражного слова меньше.
-				//Так как 4 бита приоритета идут в начале, то более приоритетные сообщения выигрывают.
-				//
-				//Рецессивное состояние — это молчание в течение арбитражного окна
-				//Доминантное состояние передаётся значением 0xFF
-
-				//собственно принцип такой:
-				//Если устройство должно передавать доминантное состояние, то по началу арбитражного окна оно отправляет в шину 0xFF.
-				//Если на шине уже идет передача — устройство молчит, чтобы не передавать посылку, которая рассинхронизировалась.
-				//В этом арбитражном окне такое устройство проиграть не может. Чужая передача обнаруживается с помощью флага BUS BUSY,
-				//который есть в аппаратном блоке USART и выставляется, если на шине обнаружен чужой стартовый бит.
-
-				//Если же устройство должно передать рецессивное состояние — оно молчит в течение всего арбитражного окна и слушает шину.
-				//Если из шины за время арбитражного окна был принят байт — другое устройство передало доминантное состояние и арбитраж проигран.
-				if (arbitrage_word & (0x8000000 >> arbitrage_window)) { //1 - рециссивное состояние — это молчание в
-					//течение арбитражного окна, если обнаружили передачу - проиграли
-				} else { // Ноль - доминантным состоянием, надо передать 0xFF на шину, если ещё нет передачи
-						 //даже если передача есть, то всё равно арбитраж продолжается - продолжаем "бороться"
-						 //Bit 16 BUSY: Busy flag
-						 //This bit is set and reset by hardware. It is active when a communication is ongoing on the
-						 //RX line (successful start bit detected). It is reset at the end of the reception (successful or
-						 //not).
-						 //0: USART is idle (no reception)
-						 //1: Reception on going
-
-					if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET) { //проверяем есть ли сейчас какая либо передача на линии
-
-					} else {
-						static const uint8_t FF = { 0xFF };
-						write_serial(FF, 1, 0, &nmbs.platform.arg);
+					if (HAL_UART_AbortReceive(&huart2) != HAL_OK) {
+						Error_Handler();
 					}
-
-				}
-				arbitrage_window++; //следующее арбитражное окно
-				if (arbitrage_window >= 32) { //закончился арбитраж
-					fast_mb_mode = mb_none;	//после ответа (если он будет) продолжаем обычный приём
-					if (!arbitrage_loss) {// если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
-						if (i_am_not_scaned) { //если мы ещё не отсканированы, то отвечаем такой командой
-							//(1 байт) 0xFD широковещательный адрес
-							//(1 байт) 0x46 команда работы с расширенными функциями
-							//(1 байт) 0x03 субкоманда - признак ответа на сканирование
-							//(4 байта) серийный номер устройства (big endian)
-							//(1 байт) modbus адрес устройства
-							//(2 байта) контрольная сумма
-							i_am_not_scaned = false; //устройство отсканировано
-						} else { //если мы отсканированы и выиграли арбитраж (скорее всего отвечаем на команду продолжения сканирования)
-							// все отсканированные устройства отправляют одно и то же сообщение «Конец сканирования»
-							//(1 байт) 0xFD широковещательный адрес
-							//(1 байт) 0x46 команда работы с расширенными функциями
-							//(1 байт) 0x04 — субкоманда завершения сканирования;
-							//(2 байта) xD3 0x93 — контрольная сумма.
-						}
-					} else {
-						if (HAL_UART_AbortReceive(&huart2) != HAL_OK) {
-							Error_Handler();
-						}
-						nano_RecieveMode();
-					}
+					nano_RecieveMode();
 				}
 				break;
-			default:
-				Error_Handler();
 			}
+
+			//Во время арбитража устройство-слейв передаёт по одному биту друг за другом арбитражное слово,
+			//которое состоит из приоритета и уникального идентификатора.
+			//
+			//Приоритет сообщения — это 4 бита: 0 (0b0000) — наивысший, 15 (0b1111) — низший
+			//
+			//(28-битное число) младшие 28 бит уникального серийного номера
+			//
+			//Опрос событий — modbus-адрес (8-битное число). Устройства на шине уже настроены, коллизии адресов отсутствуют,
+			//нет смысла тратить время на арбитраж по серийным номерам.
+			//
+			//В итоге арбитражное слово имеет длину 12 бит (4+8) при событиях или 32 бита (4+28) при сканировании
+
+			//Ноль передаётся доминантным состоянием, а единица рецессивным — это значит, что арбитраж всегда выигрывают устройства,
+			//у которых значение арбитражного слова меньше.
+			//Так как 4 бита приоритета идут в начале, то более приоритетные сообщения выигрывают.
+			//
+			//Рецессивное состояние — это молчание в течение арбитражного окна
+			//Доминантное состояние передаётся значением 0xFF
+
+			//собственно принцип такой:
+			//Если устройство должно передавать доминантное состояние, то по началу арбитражного окна оно отправляет в шину 0xFF.
+			//Если на шине уже идет передача — устройство молчит, чтобы не передавать посылку, которая рассинхронизировалась.
+			//В этом арбитражном окне такое устройство проиграть не может. Чужая передача обнаруживается с помощью флага BUS BUSY,
+			//который есть в аппаратном блоке USART и выставляется, если на шине обнаружен чужой стартовый бит.
+
+			//Если же устройство должно передать рецессивное состояние — оно молчит в течение всего арбитражного окна и слушает шину.
+			//Если из шины за время арбитражного окна был принят байт — другое устройство передало доминантное состояние и арбитраж проигран.
+			if (arbitrage_word & (0x8000000 >> arbitrage_window)) { //1 - рециссивное состояние — это молчание в
+#ifdef NMBS_DEBUG
+				printf("w%02d %d 00\n", arbitrage_window, HAL_GetTick());
+#endif
+				//течение арбитражного окна, если обнаружили передачу - проиграли
+			} else { // Ноль - доминантным состоянием, надо передать 0xFF на шину, если ещё нет передачи
+					 //даже если передача есть, то всё равно арбитраж продолжается - продолжаем "бороться"
+					 //Bit 16 BUSY: Busy flag
+					 //This bit is set and reset by hardware. It is active when a communication is ongoing on the
+					 //RX line (successful start bit detected). It is reset at the end of the reception (successful or
+					 //not).
+					 //0: USART is idle (no reception)
+					 //1: Reception on going
+
+				if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET) { //проверяем есть ли сейчас какая либо передача на линии
+#ifdef NMBS_DEBUG
+					printf("w%02d %d 88\n", arbitrage_window, HAL_GetTick());
+#endif
+
+				} else {
+					static const uint8_t FF = { 0xFF };
+					//если мы ещё не проиграли арбитраж
+					//то передаём доминантное состояние
+					if (!arbitrage_loss) {
+						write_serial(FF, 1, 0, &nmbs.platform.arg);
+#ifdef NMBS_DEBUG
+						printf("w%02d %d FF\n", arbitrage_window,
+								HAL_GetTick());
+#endif
+					}
+				}
+
+			}
+			arbitrage_window++; //следующее арбитражное окно
+			break;
+		default:
+			Error_Handler();
 		}
 	}
+
 }
 
 nmbs_error handle_read_coils(uint16_t address, uint16_t quantity,
@@ -582,6 +732,247 @@ nmbs_error handle_read_coils(uint16_t address, uint16_t quantity,
 	}
 	return NMBS_ERROR_NONE;
 }
+char* get_string_module() {
+	return "6DO8DI";
+}
+
+nmbs_error read_input_holding(bool is_holding, uint16_t address,
+		uint16_t quantity, uint16_t *registers_out) {
+	uint8_t shift_address;
+	if (quantity >= 256)
+		return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+	for (uint16_t i = 0; i < (quantity); i++) {
+		uint16_t cur_addr = i + address;
+
+		switch (cur_addr) {
+		case 0:
+
+			break;
+		case 1:
+		case 2:
+		case 3:
+		case 4:
+		case 5:
+		case 6:
+		case 7:
+		case 8:
+		case 9:
+		case 10:
+		case 11:
+		case 12:
+		case 13:
+		case 14:
+		case 15:
+		case 16:
+			break;
+		case 17: //чтение DO в одном слове
+
+			break;
+		case 18:
+		case 19:
+		case 20:
+		case 21:
+		case 22:
+		case 23:
+		case 24:
+		case 25:
+		case 26:
+		case 27:
+		case 28:
+		case 29:
+		case 30:
+		case 31:
+
+			break;
+//чтение DI в одном слове @todo
+		case 32:
+
+			break;
+		case 33:
+		case 34:
+		case 35:
+		case 36:
+		case 37:
+		case 38:
+		case 39:
+		case 40:
+		case 41:
+		case 42:
+		case 43:
+		case 44:
+			shift_address = 33;
+			//чтение AO
+			//надо выдать значение входов AO - хранятся в server_registers начиная с нулевой ячейки
+
+			break;
+		case 45:
+		case 46:
+		case 47:
+		case 48:
+		case 49:
+		case 50:
+		case 51:
+		case 52:
+		case 53:
+		case 54:
+		case 55:
+		case 56:
+		case 57:
+		case 58:
+		case 59:
+		case 60:
+		case 61:
+		case 62:
+		case 63:
+		case 64:
+		case 65:
+		case 66:
+		case 67:
+		case 68:
+		case 69:
+		case 70:
+		case 71:
+		case 72:
+		case 73:
+		case 74:
+		case 75:
+		case 76:
+			break;
+		case 77:
+		case 78:
+		case 79:
+		case 80:
+		case 81:
+		case 82:
+		case 83:
+		case 84:
+		case 85:
+		case 86:
+		case 87:
+		case 88:
+		case 89:
+		case 90:
+		case 91:
+		case 92:
+		case 93:
+		case 94:
+		case 95:
+		case 96:
+		case 97:
+		case 98:
+		case 99:
+		case 100:
+		case 101:
+		case 102:
+		case 103:
+		case 104:
+
+			break;
+
+		case 105: //Время работы с момента загрузки u32 секунды младшая часть
+			static uint16_t high_time_counter;
+			break;
+		case 106: //Время работы с момента загрузки u32 секунды
+			//старшая часть числа запомненная при считывании младшей части
+			break;
+
+		case 110: //Скорость порта RS-485
+			break;
+		case 111: //бит чётности порта RS-485
+			break;
+		case 112: //Количество стоп-битов порта RS-485
+			break;
+		case 128:
+		case 200:
+		case 201:
+		case 202:
+		case 203:
+		case 204:
+		case 205:
+		case 206:
+		case 207:
+		case 208:
+		case 209:
+		case 210:
+		case 211:
+		case 212:
+		case 213:
+		case 214:
+		case 215:
+		case 216:
+		case 217:
+		case 218:
+		case 219:
+			shift_address = 200;
+			//Модель устройства
+			char *model = get_string_module();
+			if ((cur_addr - shift_address) * 2 < strlen(model)) {
+				strncpy((char*) &registers_out[i],
+						(model + (cur_addr - shift_address) * 2), 2);
+			} else {
+				registers_out[i] = 0;
+			}
+			break;
+		case 270: //серийный номер
+
+			registers_out[i] = nmbs.msg.fastmodbus_address & 0xFFFF;
+			break;
+		case 271: //серийный номер
+
+			registers_out[i] = nmbs.msg.fastmodbus_address >> 16;
+			break;
+		case 320: //Версия прошивки в числовом формате MAJOR
+			registers_out[i] = MAJOR_VER;
+			break;
+		case 321: //Версия прошивки в числовом формате MINOR
+			registers_out[i] = MINOR_VER;
+			break;
+		case 322: //Версия прошивки в числовом формате PATCH
+			registers_out[i] = PATCH_VER;
+			break;
+		case 323: //Версия прошивки в числовом формате SUFFIX, значение знаковое.
+			registers_out[i] = SUFFIX_VER;
+			break;
+		case 324: //Версия прошивки в u32 VERSION = (MAJOR << 24) + (MINOR << 16) + (PATCH << 8) + SUFFIX;
+			uint8_t suffix;
+			if (SUFFIX_VER >= 0) {
+				suffix = SUFFIX_VER + 128;
+			} else {
+				suffix = -1 - SUFFIX_VER;
+			}
+			registers_out[i] = (PATCH_VER << 8) + suffix;
+			break;
+		case 325: //Версия прошивки в u32
+			registers_out[i] = (MAJOR_VER << 8) + MINOR_VER;
+			break;
+		case 330: //версия загрузчика
+
+			break;
+		case 331: //версия загрузчика
+
+			break;
+
+		default:
+			if (is_holding) {
+
+			}
+			//для сквозной адресации ошибку не выдаём, а возвращаем 0
+			//Для всех модулей ОДИНАКОВОЕ адресное пространство
+			registers_out[i] = 0;
+			//return NMBS_ERROR_NONE;
+			//return NMBS_EXCEPTION_ILLEGAL_DATA_ADDRESS;
+		}
+	}
+
+	return NMBS_ERROR_NONE;
+
+}
+
+//0X03 read_holding_registers
+nmbs_error handler_read_holding_registers(uint16_t address, uint16_t quantity,
+		uint16_t *registers_out, uint8_t unit_id, void *arg) {
+	return read_input_holding(true, address, quantity, registers_out);
+}
 
 void onError(nmbs_error err) {
 	printf("error: %d\n", err);
@@ -591,6 +982,8 @@ void onError(nmbs_error err) {
 #ifdef NMBS_DEBUG
 uint8_t debug_buffer[4096];
 uint16_t pos_debug = 0;
+uint16_t print_debug = 0;
+volatile uint16_t pos_print = 0;
 
 int _write(int file, char *data, int len) {
 	if ((file != STDOUT_FILENO) && (file != STDERR_FILENO)) {
@@ -599,13 +992,37 @@ int _write(int file, char *data, int len) {
 	}
 	//HAL_UART_Transmit(&huart1, (uint8_t*) data, (uint16_t) len, 0xFFFF);
 	//HAL_UART_Transmit_IT(&huart1, (uint8_t*) data, (uint16_t) len);
+	int my_len = 0;
+	int total_len = len;
+	if ((pos_debug + len) > sizeof(debug_buffer)) {
+		my_len = (pos_debug + len) - sizeof(debug_buffer);
+		strncpy(&debug_buffer[pos_debug], data, my_len);
+		pos_debug = 0;
+		len -= my_len;
+	}
 	strncpy(&debug_buffer[pos_debug], data, len);
 	pos_debug += len;
-	return len;
+	return total_len;
 }
 void flush_debug() {
-	HAL_UART_Transmit_IT(&huart1, debug_buffer, pos_debug);
-	pos_debug = 0;
+	if (pos_print != pos_debug) {
+		int len_for_send;
+		if (pos_print < pos_debug) { //нормальный ход
+			//__disable_irq();
+			int len_for_send = pos_debug - pos_print;
+			//__enable_irq();
+			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_print],
+					len_for_send);
+			pos_print += len_for_send;
+		} else {    	//отправим до конца массива и сдвигаем указатель на ноль
+			int len_for_send = sizeof(debug_buffer) - pos_print;
+			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_print],
+					len_for_send);
+			pos_print = 0;
+		}
+
+	}
+
 }
 #endif
 
@@ -640,13 +1057,23 @@ int main(void) {
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
 	MX_USART2_UART_Init();
+	//вычисление коэффициентов таймера в разных режимах.
+	//Запускать всегда до вызова инициализации таймера
+	compute_timer();
 	MX_TIM6_Init(0);
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
 
 	fast_mb_mode = mb_none; //работаем как с обычным modbus
+
 #ifdef NMBS_DEBUG
-	printf("Begin\n");
+	//printf("Begin\n");
+	printf("Speed:%d Address:%d\n", Speed, RTU_SERVER_ADDRESS);
+	printf("FastModbus_Prescaler:%d Arbitrage_Period:%d Window_Period:%d\n",
+			FastModbus_Prescaler, Arbitrage_Period, Window_Period);
+	printf("Normal_Prescaler:%d Normal_Period:%d\n", Normal_Prescaler,
+			Normal_Period);
+
 #endif
 	nmbs_platform_conf platform_conf;
 	nmbs_platform_conf_create(&platform_conf);
@@ -657,10 +1084,12 @@ int main(void) {
 	nmbs_callbacks callbacks;
 	nmbs_callbacks_create(&callbacks);
 	callbacks.read_coils = handle_read_coils;
+	//0x03
+	callbacks.read_holding_registers = handler_read_holding_registers;
 
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);
-
+	nmbs.msg.fastmodbus_address = 4265607340; //(dec) или 0xFE4000AC 32 битный уникальный fastmodbus адрес устройства
 	if (err != NMBS_ERROR_NONE)
 		onError(err);
 

@@ -200,6 +200,7 @@ static void msg_state_reset(nmbs_t* nmbs) {
     nmbs->msg.transaction_id = 0;
     nmbs->msg.broadcast = false;
     nmbs->msg.ignored = false;
+    nmbs->msg.fastmodbus_req = false;
     nmbs->msg.complete = false;
 }
 
@@ -389,7 +390,15 @@ static void put_msg_header(nmbs_t* nmbs, uint16_t data_length) {
     msg_buf_reset(nmbs);
 
     if (nmbs->platform.transport == NMBS_TRANSPORT_RTU) {
-        put_1(nmbs, nmbs->msg.unit_id);
+        if (nmbs->msg.fastmodbus_req){//add fastmodbus answer
+	    put_1(nmbs, 0xFD);
+	    put_1(nmbs, 0x46);
+	    put_1(nmbs, 0x09);
+	    put_2(nmbs, nmbs->msg.fastmodbus_address >> 16);
+	    put_2(nmbs, nmbs->msg.fastmodbus_address & 0xFFFF);
+        }else{
+            put_1(nmbs, nmbs->msg.unit_id);
+        }
     }
     else if (nmbs->platform.transport == NMBS_TRANSPORT_TCP) {
         put_2(nmbs, nmbs->msg.transaction_id);
@@ -438,6 +447,10 @@ static nmbs_error recv_req_header(nmbs_t* nmbs, bool* first_byte_received) {
         // Check if request is for us
         if (nmbs->msg.unit_id == NMBS_BROADCAST_ADDRESS)
             nmbs->msg.broadcast = true;
+        else if (nmbs->msg.unit_id == NMBS_FMB_BROADCAST_ADDRESS){
+            nmbs->msg.ignored = false; //зачем? если при инициализации сбросили
+            nmbs->msg.fastmodbus_req = true;
+        }
         else if (nmbs->msg.unit_id != nmbs->address_rtu)
             nmbs->msg.ignored = true;
         else
@@ -1800,6 +1813,50 @@ static nmbs_error handle_read_device_identification(nmbs_t* nmbs) {
 #endif
 
 
+#ifndef NMBS_SERVER_EMULATE_DISABLED
+static nmbs_error handle_req_fc(nmbs_t* nmbs);
+static nmbs_error handle_emulate_standart(nmbs_t* nmbs) {
+//
+    nmbs_error err = recv(nmbs, 1);
+    if (err != NMBS_ERROR_NONE)
+        return err;
+    uint8_t subcommand = get_1(nmbs);
+    NMBS_DEBUG_PRINT("subc %d ", subcommand);
+    if (subcommand != 0x08)
+        return NMBS_ERROR_INVALID_REQUEST;
+
+    //read serial big endian address
+    err = recv(nmbs, 4);
+    if (err != NMBS_ERROR_NONE)
+        return err;
+    uint32_t fmb_address = get_2(nmbs)<<16;
+    fmb_address |= get_2(nmbs);
+    if (nmbs->msg.fastmodbus_address!=fmb_address)
+     nmbs->msg.ignored = true; //ignore request for another serial address
+
+    //read standart request
+    err = recv(nmbs, 1);
+    if (err != NMBS_ERROR_NONE)
+       return err;
+
+    nmbs->msg.fc = get_1(nmbs);
+    if (nmbs->msg.fc == 0x46) //check for block recursive request
+        return NMBS_ERROR_INVALID_REQUEST;
+
+    err = handle_req_fc(nmbs);
+    if (err != NMBS_ERROR_NONE) {
+        if (err != NMBS_ERROR_TIMEOUT)
+            flush(nmbs);
+
+        return err;
+    }
+    
+    return NMBS_ERROR_NONE;
+}
+
+#endif
+
+
 static nmbs_error handle_req_fc(nmbs_t* nmbs) {
     NMBS_DEBUG_PRINT("fc %d\t", nmbs->msg.fc);
 
@@ -1874,6 +1931,11 @@ static nmbs_error handle_req_fc(nmbs_t* nmbs) {
 #ifndef NMBS_SERVER_READ_DEVICE_IDENTIFICATION_DISABLED
         case 43:
             err = handle_read_device_identification(nmbs);
+            break;
+#endif
+#ifndef NMBS_SERVER_EMULATE_DISABLED
+        case 0x46:
+            err = handle_emulate_standart(nmbs);
             break;
 #endif
         default:
@@ -2410,6 +2472,44 @@ nmbs_error nmbs_receive_raw_pdu_response(nmbs_t* nmbs, uint8_t* data_out, uint8_
     return NMBS_ERROR_NONE;
 }
 #endif
+ nmbs_error answer_scan(nmbs_t *nmbs) {
+
+//(1 байт) 0xFD широковещательный адрес
+//(1 байт) 0x46 команда работы с расширенными функциями
+//(1 байт) 0x03 субкоманда - признак ответа на сканирование
+//(4 байта) серийный номер устройства (big endian)
+//(1 байт) modbus адрес устройства
+//(2 байта) контрольная сумма
+
+	msg_buf_reset(nmbs);
+	put_1(nmbs, 0xFD);
+	put_1(nmbs, 0x46);
+	put_1(nmbs, 0x03);
+	put_2(nmbs, nmbs->msg.fastmodbus_address >> 16);
+	put_2(nmbs, nmbs->msg.fastmodbus_address & 0xFFFF);
+	put_1(nmbs, nmbs->msg.unit_id);
+
+	nmbs_error err = send_msg(nmbs);
+//	if (err != NMBS_ERROR_NONE)
+		return err;
+//    return NMBS_ERROR_NONE;
+}
+ nmbs_error end_scan(nmbs_t *nmbs) {
+	//(1 байт) 0xFD широковещательный адрес
+	//(1 байт) 0x46 команда работы с расширенными функциями
+	//(1 байт) 0x04 — субкоманда завершения сканирования;
+	//(2 байта) xD3 0x93 — контрольная сумма.
+
+	msg_buf_reset(nmbs);
+	put_1(nmbs, 0xFD);
+	put_1(nmbs, 0x46);
+	put_1(nmbs, 0x04);
+
+	nmbs_error err = send_msg(nmbs);
+//	if (err != NMBS_ERROR_NONE)
+		return err;
+//    return NMBS_ERROR_NONE;
+}
 
 
 #ifndef NMBS_STRERROR_DISABLED

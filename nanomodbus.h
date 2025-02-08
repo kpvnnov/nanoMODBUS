@@ -241,9 +241,11 @@ typedef struct nmbs_t {
         //some embedded system have hardware control of reception delays (pauses) when the modbus packet is received 
         volatile uint16_t buf_rec; 
         uint8_t unit_id;
+        uint32_t fastmodbus_address;
         uint8_t fc;
         uint16_t transaction_id;
         bool broadcast;
+        bool fastmodbus_req;
         bool ignored;
         bool complete;
     } msg;
@@ -264,6 +266,11 @@ typedef struct nmbs_t {
  * Modbus broadcast address. Can be passed to nmbs_set_destination_rtu_address().
  */
 static const uint8_t NMBS_BROADCAST_ADDRESS = 0;
+
+/**
+ * Fast Modbus broadcast address. 
+ */
+static const uint8_t NMBS_FMB_BROADCAST_ADDRESS = 0xFD;
 
 /** Set the request/response timeout.
  * If the target instance is a server, sets the timeout of the nmbs_server_poll() function.
@@ -527,6 +534,10 @@ nmbs_error nmbs_send_raw_pdu(nmbs_t* nmbs, uint8_t fc, const uint8_t* data, uint
  */
 nmbs_error nmbs_receive_raw_pdu_response(nmbs_t* nmbs, uint8_t* data_out, uint8_t data_out_len);
 #endif
+
+
+nmbs_error answer_scan(nmbs_t *nmbs);
+nmbs_error end_scan(nmbs_t *nmbs);
 
 /** Calculate the Modbus CRC of some data.
  * @param data Data

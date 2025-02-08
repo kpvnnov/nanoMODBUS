@@ -39,6 +39,25 @@ extern "C" {
 
 #define NMBS_DEBUG 1
 
+#define BOOLEAN2INT (0x0001) //значение для integer значений, которые должны быть единицей
+//#define BOOLEAN2INT (0xFFFF)
+
+//версия прошивки @todo в будущем брать из автосборки
+#define MAJOR_VER 1
+#define MINOR_VER 0
+#define PATCH_VER 11
+//значение знаковое
+#define SUFFIX_VER 0
+
+
+// для хранения данных у нас есть server_registers
+//с нулевой по 15 ячейку храним AO
+#define REGS_ADDR_BOUND 16
+//начиная с ячейки REGS_ADDR_BOUND и до ячейки REGS_HOLD_BOUND хранятся данные дискретных входов
+#define REGS_HOLD_BOUND (REGS_ADDR_BOUND+16)
+//в AI модуле необходимо будет ещё хранить данные с различных АЦП, поэтому это место пока в резерве
+#define REGS_AI_BOUND (REGS_HOLD_BOUND+16)
+
 
 #define USARTx                           USART1
 #define USARTx_CLK_ENABLE()              __HAL_RCC_USART1_CLK_ENABLE();
