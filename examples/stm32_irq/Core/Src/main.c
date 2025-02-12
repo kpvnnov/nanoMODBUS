@@ -91,7 +91,16 @@ uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 // A single nmbs_bitfield variable can keep 2000 coils
 nmbs_bitfield server_coils = { 0 };
 uint16_t server_registers[REGS_ADDR_MAX + 1] = { 0 };
+#ifdef NMBS_DEBUG
 
+volatile bool debug_uart_run = false;
+volatile uint16_t pos_print = 0;
+
+uint8_t debug_buffer[4096];
+uint16_t pos_debug = 0;
+//uint16_t print_debug = 0;
+
+#endif
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,6 +111,60 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+#ifdef NMBS_DEBUG
+
+void flush_debug(bool from_isr) {
+	if (debug_uart_run)
+		return;
+	if (pos_print != pos_debug) {
+		int len_for_send;
+		volatile fast_quit = false;
+		if (pos_print <= pos_debug) { //нормальный ход
+			if (!from_isr)
+				__disable_irq();
+			int len_for_send = pos_debug - pos_print;
+			int pos_for_send = pos_print;
+			if (len_for_send == 0) {
+				fast_quit = true;
+			} else {
+				pos_print += len_for_send;
+			}
+
+			if (!from_isr)
+				__enable_irq();
+			if (fast_quit)
+				return;
+
+			if ((pos_for_send + len_for_send) > sizeof(debug_buffer)) {
+				Error_Handler();
+			}
+			debug_uart_run = true;
+			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_for_send],
+					len_for_send);
+
+		} else {    	//отправим до конца массива и сдвигаем указатель на ноль
+			if (!from_isr)
+				__disable_irq();
+			int len_for_send = sizeof(debug_buffer) - pos_print;
+			int pos_for_send = pos_print;
+			pos_print = 0;
+			if (!from_isr)
+				__enable_irq();
+
+			if ((pos_for_send + len_for_send) > sizeof(debug_buffer)) {
+				Error_Handler();
+			}
+			debug_uart_run = true;
+			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_for_send],
+					len_for_send);
+
+		}
+
+	}
+
+}
+#endif
 
 //чтобы не терять время на математические операции коэффициенты делителя рассчитать заранее
 /* вычисляем две переменных
@@ -235,7 +298,7 @@ fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 		break;
 	case 0x02: // Функция продолжения сканирования - 0x02
 #ifdef NMBS_DEBUG
-		printf("fb func 2\n");
+		printf("\nfb func 2\n");
 #endif
 
 		if (nmbs->msg.buf[3] == 0x53 && nmbs->msg.buf[4] == 0x91) { //проверка crc
@@ -296,11 +359,15 @@ int32_t read_from_buf(uint8_t *buf, uint16_t count, int32_t byte_timeout_ms,
 int32_t write_serial(const uint8_t *buf, uint16_t count,
 		int32_t byte_timeout_ms, void *arg) {
 	SetRS485Transmit();
-	if (HAL_UART_AbortReceive(&huart2) != HAL_OK) {
+	HAL_StatusTypeDef res;
+	res = HAL_UART_AbortReceive(&huart2);
+	if (res != HAL_OK) {
+		NMBS_DEBUG_PRINT("HAL_UART_AbortReceive error %d\n", res);
 		Error_Handler();
 	}
-	if (HAL_UART_Transmit_IT(&huart2, buf, count) != HAL_OK) {
-		NMBS_DEBUG_PRINT("HAL_UART_Transmit_IT error\n");
+	res = HAL_UART_Transmit_IT(&huart2, buf, count);
+	if (res != HAL_OK) {
+		NMBS_DEBUG_PRINT("HAL_UART_Transmit_IT error %d\n", res);
 		Error_Handler();
 	}
 	return count;
@@ -359,6 +426,9 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 		default:
 			Error_Handler();
 		}
+	} else if (huart == &huart1) {
+		debug_uart_run = false;
+		flush_debug(true);
 	}
 }
 
@@ -376,8 +446,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
 		}
 #ifdef NMBS_DEBUG
-		printf("%ld uart %02x\n", HAL_GetTick(),
-				nmbs.msg.buf[nmbs.msg.buf_rec]);
+		printf("%ld uart %02x ", HAL_GetTick(), nmbs.msg.buf[nmbs.msg.buf_rec]);
 #endif
 		switch (fast_mb_mode) {
 		case mb_none:	//продолжаем обычный приём
@@ -475,8 +544,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 
 			} else {
 				// arbitrage_window - 1 = это номер арбитражного окна, в котором приняли байт
-				if (arbitrage_word & (0x8000000 >> (arbitrage_window - 1))) { //1 - рециссивное состояние — это молчание в
+				if (!arbitrage_loss
+						&& (arbitrage_word
+								& (0x8000000 >> (arbitrage_window - 1)))) { //1 - рециссивное состояние — это молчание в
 					//течение арбитражного окна, если обнаружили передачу - проиграли
+#ifdef NMBS_DEBUG
+					printf("w%02d %d \n!loss!\n ", arbitrage_window,
+							HAL_GetTick());
+#endif
+
 					arbitrage_loss = true;
 				}
 			}
@@ -513,7 +589,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			//нет смысла запускать процедуру обработки модбас при пустом входном буфере
 			if (Size) { //number of received symbol
 #ifdef NMBS_DEBUG
-				printf("%ld normal timer\n", HAL_GetTick());
+				printf("\n%ld normal timer\n", HAL_GetTick());
 #endif
 				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
@@ -610,7 +686,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				}
 
 #ifdef NMBS_DEBUG
-				printf("%ld end arb\n", HAL_GetTick());
+				printf("\n%ld end arb\n", HAL_GetTick());
 #endif
 				arbitrage_window++;
 				break;
@@ -621,7 +697,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					Error_Handler();
 				}
 #ifdef NMBS_DEBUG
-				printf("%ld end arb tim\n", HAL_GetTick());
+				printf("\n %ld end arb tim\n", HAL_GetTick());
 #endif
 				fast_mb_mode = mb_none; //после ответа (если он будет) продолжаем обычный приём
 				if (!arbitrage_loss) { // если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
@@ -680,7 +756,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			//Если из шины за время арбитражного окна был принят байт — другое устройство передало доминантное состояние и арбитраж проигран.
 			if (arbitrage_word & (0x8000000 >> arbitrage_window)) { //1 - рециссивное состояние — это молчание в
 #ifdef NMBS_DEBUG
-				printf("w%02d %d 00\n", arbitrage_window, HAL_GetTick());
+				printf("w%02d %d silent ", arbitrage_window, HAL_GetTick());
 #endif
 				//течение арбитражного окна, если обнаружили передачу - проиграли
 			} else { // Ноль - доминантным состоянием, надо передать 0xFF на шину, если ещё нет передачи
@@ -694,18 +770,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 				if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET) { //проверяем есть ли сейчас какая либо передача на линии
 #ifdef NMBS_DEBUG
-					printf("w%02d %d 88\n", arbitrage_window, HAL_GetTick());
+					printf("w%02d %d \n!!\n!!SET!!\n!!\n", arbitrage_window,
+							HAL_GetTick());
 #endif
 
 				} else {
-					static const uint8_t FF = { 0xFF };
+					static const uint8_t FF[1] = { 0xFF };
 					//если мы ещё не проиграли арбитраж
 					//то передаём доминантное состояние
 					if (!arbitrage_loss) {
 						write_serial(FF, 1, 0, &nmbs.platform.arg);
 #ifdef NMBS_DEBUG
-						printf("w%02d %d FF\n", arbitrage_window,
-								HAL_GetTick());
+						printf("w%02d %d FF ", arbitrage_window, HAL_GetTick());
 #endif
 					}
 				}
@@ -906,9 +982,12 @@ nmbs_error read_input_holding(bool is_holding, uint16_t address,
 			shift_address = 200;
 			//Модель устройства
 			char *model = get_string_module();
-			if ((cur_addr - shift_address) * 2 < strlen(model)) {
-				strncpy((char*) &registers_out[i],
-						(model + (cur_addr - shift_address) * 2), 2);
+			uint8_t length_name = strlen(model);
+			//uint8_t shift_word=(cur_addr - shift_address) * 2;
+			uint8_t shift_word = (cur_addr - shift_address);
+			if (shift_word < length_name) {
+				//registers_out[i]=model[shift_word]| (model[shift_word+1]<<8);
+				registers_out[i] = model[shift_word];
 			} else {
 				registers_out[i] = 0;
 			}
@@ -980,10 +1059,6 @@ void onError(nmbs_error err) {
 }
 
 #ifdef NMBS_DEBUG
-uint8_t debug_buffer[4096];
-uint16_t pos_debug = 0;
-uint16_t print_debug = 0;
-volatile uint16_t pos_print = 0;
 
 int _write(int file, char *data, int len) {
 	if ((file != STDOUT_FILENO) && (file != STDERR_FILENO)) {
@@ -994,36 +1069,26 @@ int _write(int file, char *data, int len) {
 	//HAL_UART_Transmit_IT(&huart1, (uint8_t*) data, (uint16_t) len);
 	int my_len = 0;
 	int total_len = len;
-	if ((pos_debug + len) > sizeof(debug_buffer)) {
-		my_len = (pos_debug + len) - sizeof(debug_buffer);
+	if ((pos_debug + len) >= sizeof(debug_buffer)) {
+		//my_len = (pos_debug + len) - sizeof(debug_buffer);
+		my_len = sizeof(debug_buffer) - pos_debug;
 		strncpy(&debug_buffer[pos_debug], data, my_len);
 		pos_debug = 0;
 		len -= my_len;
 	}
+	if (len > sizeof(debug_buffer)) {
+		len = sizeof(debug_buffer);
+	}
 	strncpy(&debug_buffer[pos_debug], data, len);
 	pos_debug += len;
+	if (pos_debug >= sizeof(debug_buffer)) {
+
+		Error_Handler();
+		pos_debug = 0;
+	}
 	return total_len;
 }
-void flush_debug() {
-	if (pos_print != pos_debug) {
-		int len_for_send;
-		if (pos_print < pos_debug) { //нормальный ход
-			//__disable_irq();
-			int len_for_send = pos_debug - pos_print;
-			//__enable_irq();
-			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_print],
-					len_for_send);
-			pos_print += len_for_send;
-		} else {    	//отправим до конца массива и сдвигаем указатель на ноль
-			int len_for_send = sizeof(debug_buffer) - pos_print;
-			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_print],
-					len_for_send);
-			pos_print = 0;
-		}
 
-	}
-
-}
 #endif
 
 /* USER CODE END 0 */
@@ -1090,6 +1155,8 @@ int main(void) {
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);
 	nmbs.msg.fastmodbus_address = 4265607340; //(dec) или 0xFE4000AC 32 битный уникальный fastmodbus адрес устройства
+	//nmbs.msg.fastmodbus_address = 40;
+	//nmbs.msg.fastmodbus_address = 4294967040;
 	if (err != NMBS_ERROR_NONE)
 		onError(err);
 
@@ -1106,9 +1173,9 @@ int main(void) {
 		//Here you can add the logic of the main program. At this point, modbus communication is in interrupt mode
 		RED_TOGGLE();
 #ifdef NMBS_DEBUG
-		flush_debug();
+		flush_debug(false);
 #endif
-		HAL_Delay(500);
+		HAL_Delay(100);
 	}
 	/* USER CODE END 3 */
 }
