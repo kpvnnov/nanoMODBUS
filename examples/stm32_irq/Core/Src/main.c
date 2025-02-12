@@ -195,14 +195,12 @@ void compute_timer() {
 	uint32_t x, y;
 	uint32_t k;
 
-
 	Normal_Prescaler = SystemCoreClock / (1000000UL / 50UL) - 1;
 	if (Speed > 19200) {
 		Normal_Period = (1750 / 50) - 1;
 	} else {
 		Normal_Period = ((7UL * 1000000UL * 11UL / (50UL * 2UL)) / Speed); //-1 absent for rounding up
 	}
-
 
 	x = SystemCoreClock / (uint32_t) (Speed * 10);
 	FastModbus_Prescaler = x - 1;
@@ -317,19 +315,6 @@ fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 				& (nmbs->msg.buf[5] << 8) & (nmbs->msg.buf[6]))
 				!= nmbs->msg.fastmodbus_address)
 			return fast_mb_none;
-
-		/*		if (((nmbs->msg.fastmodbus_address >> 24) & 0xFF) != nmbs->msg.buf[3]) {
-		 return fast_mb_none;
-		 }
-		 if (((nmbs->msg.fastmodbus_address >> 16) & 0xFF) != nmbs->msg.buf[4]) {
-		 return fast_mb_none;
-		 }
-		 if (((nmbs->msg.fastmodbus_address >> 8) & 0xFF) != nmbs->msg.buf[5]) {
-		 return fast_mb_none;
-		 }
-		 if (((nmbs->msg.fastmodbus_address >> 0) & 0xFF) != nmbs->msg.buf[6]) {
-		 return fast_mb_none;
-		 }*/
 		return fast_mb_emulate;
 		//break;
 	default:
@@ -414,9 +399,15 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 			break;
 		case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт кто-то передал
 			//подумаю завтра что делать в таких случаях
+#ifdef NMBS_DEBUG
+			printf("\n!!error end transmit mb_begin_scan!!\n");
+#endif
 			break;
 		case mb_next_scan: //ахринеть, таймаут к началу арбитража команды следующего сканирования ещё не кончился, а байт кто-то передал
 			//подумаю завтра что делать в таких случаях
+#ifdef NMBS_DEBUG
+			printf("\n!!error end transmit mb_next_scan!!\n");
+#endif
 			break;
 		case mb_run_arbitrage://передавали Доминантное состояние (передаётся значением 0xFF)
 		case mb_next_arbitrage:	//передавали Доминантное состояние (передаётся значением 0xFF)
@@ -487,7 +478,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					}
 
 					if (fast_mb_mode != mb_begin_scan) {
+#ifdef NMBS_DEBUG
+						printf("%d start timer mb_next_scan\n", HAL_GetTick());
+#endif
 						fast_mb_mode = mb_next_scan;
+					} else {
+#ifdef NMBS_DEBUG
+						printf("%d start timer mb_begin_scan\n", HAL_GetTick());
+#endif
 					}
 					arbitrage_window = 0;
 					arbitrage_loss = false;
@@ -504,19 +502,22 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					Error_Handler();
 				}
 			} else { //overflow input buffer
+#ifdef NMBS_DEBUG
+				printf("\n!!overflow input buffer!!\n");
+#endif
 				nano_RecieveMode();
 			}
 			break;
 		case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт уже приняли
 #ifdef NMBS_DEBUG
-			printf("mb_begin_scan error\n");
+			printf("\n!!mb_begin_scan error!!\n");
 #endif
 			//подумаю завтра что делать в таких случаях
 			//break;
 		case mb_next_scan://ахринеть, таймаут к началу арбитража продолжить сканирование ещё не кончился, а байт уже приняли
 			//подумаю завтра что делать в таких случаях
 #ifdef NMBS_DEBUG
-			printf("mb_next_scan error\n");
+			printf("\n!!!mb_next_scan error!!\n");
 #endif
 			//пока заглатываем символ и бежим дальше
 			//Receive next symbol
@@ -535,39 +536,45 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				//подумаю завтра что делать в таких случаях
 				//пока заглатываем символ и бежим дальше
 				//Receive next symbol
+#ifdef NMBS_DEBUG
+				printf("\n!!!arbitrage_window not start!!\n");
+#endif
 				if (HAL_UART_Receive_IT(&huart2,
 						&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
 					NMBS_DEBUG_PRINT("HAL_UART_Receive_IT error\n");
-
 					Error_Handler();
 				}
 
 			} else {
 				// arbitrage_window - 1 = это номер арбитражного окна, в котором приняли байт
-				if (!arbitrage_loss
-						&& (arbitrage_word
-								& (0x8000000 >> (arbitrage_window - 1)))) { //1 - рециссивное состояние — это молчание в
-					//течение арбитражного окна, если обнаружили передачу - проиграли
+				if (!arbitrage_loss) {
+					if (arbitrage_word
+							& (0x8000000 >> (arbitrage_window - 1))) { //1 - рециссивное состояние — это молчание в
+						//течение арбитражного окна, если обнаружили передачу - проиграли
 #ifdef NMBS_DEBUG
-					printf("w%02d %d \n!loss!\n ", arbitrage_window,
-							HAL_GetTick());
+						printf("w%02d %d \n!loss!\n ", arbitrage_window,
+								HAL_GetTick());
+#endif
+						arbitrage_loss = true;
+					}
+				}else{
+#ifdef NMBS_DEBUG
+						printf("w%02d %d loss ", arbitrage_window,
+								HAL_GetTick()); //мы уже проиграли арбитраж, поэтому тихо поём о поражении
 #endif
 
-					arbitrage_loss = true;
 				}
 			}
 			if (msg_buf_inc(&nmbs)) {
-
 				//Receive next symbol
 				if (HAL_UART_Receive_IT(&huart2,
 						&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
 					NMBS_DEBUG_PRINT("HAL_UART_Receive_IT error\n");
-
 					Error_Handler();
 				}
 			} else { //overflow input buffer
 #ifdef NMBS_DEBUG
-				printf("fmb overflow\n");
+				printf("\n!!fmb overflow!!\n");
 #endif
 				nano_RecieveMode();
 			}
@@ -589,7 +596,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			//нет смысла запускать процедуру обработки модбас при пустом входном буфере
 			if (Size) { //number of received symbol
 #ifdef NMBS_DEBUG
-				printf("\n%ld normal timer\n", HAL_GetTick());
+				printf("\n%d normal timer\n", HAL_GetTick());
 #endif
 				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
@@ -645,13 +652,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			}
 			if (fast_mb_mode == mb_begin_scan) {
 #ifdef NMBS_DEBUG
-				printf("%ld run timer\n", HAL_GetTick());
+				printf("%d run timer win:%d\n", HAL_GetTick(),
+						arbitrage_window);
 #endif
 
 				fast_mb_mode = mb_run_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
 			} else {
 #ifdef NMBS_DEBUG
-				printf("%ld next timer\n", HAL_GetTick());
+				printf("%d next timer win:%d\n", HAL_GetTick(),
+						arbitrage_window);
 #endif
 				fast_mb_mode = mb_next_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
 			}
@@ -684,9 +693,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					/* Starting Error */
 					Error_Handler();
 				}
-
 #ifdef NMBS_DEBUG
-				printf("\n%ld end arb\n", HAL_GetTick());
+				printf("\n%d end arb win:%d\n", HAL_GetTick(),
+						arbitrage_window);
 #endif
 				arbitrage_window++;
 				break;
@@ -697,7 +706,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					Error_Handler();
 				}
 #ifdef NMBS_DEBUG
-				printf("\n %ld end arb tim\n", HAL_GetTick());
+				printf("\n %d end arb tim win:%d\n", HAL_GetTick(),
+						arbitrage_window);
 #endif
 				fast_mb_mode = mb_none; //после ответа (если он будет) продолжаем обычный приём
 				if (!arbitrage_loss) { // если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
