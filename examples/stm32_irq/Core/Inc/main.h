@@ -37,7 +37,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
-#define NMBS_DEBUG 1
+//#define NMBS_DEBUG 1
 
 #define BOOLEAN2INT (0x0001) //значение для integer значений, которые должны быть единицей
 //#define BOOLEAN2INT (0xFFFF)
@@ -109,6 +109,10 @@ void Error_Handler(void);
 #define USART2_RTS_GPIO_Port GPIOA
 #define LED1_SYS_AL_Pin GPIO_PIN_11
 #define LED1_SYS_AL_GPIO_Port GPIOA
+
+#define STROBE_Pin GPIO_PIN_5
+#define STROBE_GPIO_Port GPIOB
+
 
 /* USER CODE BEGIN Private defines */
 

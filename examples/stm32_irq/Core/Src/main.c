@@ -60,6 +60,8 @@
 
 //invert the red LED
 #define RED_TOGGLE()    HAL_GPIO_TogglePin(LED1_SYS_AL_GPIO_Port, LED1_SYS_AL_Pin);
+#define STROBE_TOGGLE()    HAL_GPIO_TogglePin(STROBE_GPIO_Port, STROBE_Pin);
+
 
 #define SetRS485Receive() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_RESET)
 #define SetRS485Transmit() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_SET)
@@ -417,25 +419,18 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 		default:
 			Error_Handler();
 		}
-	} else if (huart == &huart1) {
+	}
+#ifdef NMBS_DEBUG
+	else if (huart == &huart1) {
 		debug_uart_run = false;
 		flush_debug(true);
 	}
+#endif
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart == &huart2) {
-		//restart 3.5 timer
 
-		/* Generate an update event to reload the Prescaler
-		 and the repetition counter (only for advanced timer) value immediately */
-		htim6.Instance->EGR = TIM_EGR_UG;
-
-		/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-		if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-			/* Clear the update flag */
-			CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-		}
 #ifdef NMBS_DEBUG
 		printf("%ld uart %02x ", HAL_GetTick(), nmbs.msg.buf[nmbs.msg.buf_rec]);
 #endif
@@ -445,6 +440,18 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			if (msg_buf_inc(&nmbs)) {
 				switch (check_fast_modbus(&nmbs, 5)) {	//проверяем 5 байт
 				case fast_mb_none: //продолжаем приём данных как обычно
+					//restart 3.5 timer
+
+							/* Generate an update event to reload the Prescaler
+							 and the repetition counter (only for advanced timer) value immediately */
+							htim6.Instance->EGR = TIM_EGR_UG;
+
+							/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
+							if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+								/* Clear the update flag */
+								CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+							}
+					STROBE_TOGGLE();
 					break;
 					//Начало сканирования
 					//Мастер отправляет в шину команду «Начать сканирование», которая фактически звучит: «Есть кто?».
@@ -454,6 +461,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					fast_mb_mode = mb_begin_scan;
 				case fast_mb_next_scan: //команда продолжить сканирование практически такая же как и начать скнирование
 					//разница лишь в отсутсвии установки  только отличается i_am_not_scaned=true
+					STROBE_TOGGLE();
 					//stop timer 3.5 word
 					if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
 						// Starting Error
@@ -598,11 +606,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 #ifdef NMBS_DEBUG
 				printf("\n%d normal timer\n", HAL_GetTick());
 #endif
+				STROBE_TOGGLE();
 				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
 					// Starting Error
 					Error_Handler();
 				}
+
 				//чуть позже эту порнографию перенести внутрь обработки протокола
 				//switch (check_fast_modbus(&nmbs,0)) { //надо проверить не пришла ли расширенная команда fastmodbus
 				//case fast_mb_emulate: //субкоманда эмуляции стандартных запросов, обращение по серийному номеру
@@ -627,6 +637,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			break;
 		case mb_begin_scan: //сработал таймер арбитража команды начала сканирования
 		case mb_next_scan: //сработал таймер арбитража команды продолжения сканирования
+			STROBE_TOGGLE();
 			//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
 			//stop timer arbitrage interval
 			if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
@@ -650,6 +661,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				/* Starting Error */
 				Error_Handler();
 			}
+
 			if (fast_mb_mode == mb_begin_scan) {
 #ifdef NMBS_DEBUG
 				printf("%d run timer win:%d\n", HAL_GetTick(),
@@ -669,6 +681,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			//в следующем case сразу после окончания таймера начала арбитража
 		case mb_run_arbitrage:
 		case mb_next_arbitrage:
+			STROBE_TOGGLE();
 			if (arbitrage_window == 32) { //закончился арбитраж
 				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
