@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.h
+ * @brief          : Header for main.c file.
+ *                   This file contains the common defines of the application.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
@@ -53,14 +53,14 @@ extern "C" {
 #define DEBUG_TRACE  3
 #define DEBUG_HIGH_TRACE  4
 
-
 #define get_verbose_debug(debug_level) (debug_level<=DEBUG_HIGH_TRACE)
+//#define get_verbose_debug(debug_level) (debug_level<=DEBUG_ERROR)
+
 //#define get_verbose_debug(debug_level) (debug_level<=config.otladka.verbose)
 
 //включение отладки программным способом
 //#define get_debug_comport() (config.otladka.comport)
 #define get_debug_comport() (1)
-
 
 #define BOOLEAN2INT (0x0001) //значение для integer значений, которые должны быть единицей
 //#define BOOLEAN2INT (0xFFFF)
@@ -72,7 +72,6 @@ extern "C" {
 //значение знаковое
 #define SUFFIX_VER 0
 
-
 #define __HAL_ENTER_CRITICAL_SECTION() \
     uint32_t PriMsk; \
     PriMsk = __get_PRIMASK(); \
@@ -81,7 +80,6 @@ extern "C" {
 #define __HAL_EXIT_CRITICAL_SECTION() \
     __set_PRIMASK(PriMsk);
 
-
 // для хранения данных у нас есть server_registers
 //с нулевой по 15 ячейку храним AO
 #define REGS_ADDR_BOUND 16
@@ -89,7 +87,6 @@ extern "C" {
 #define REGS_HOLD_BOUND (REGS_ADDR_BOUND+16)
 //в AI модуле необходимо будет ещё хранить данные с различных АЦП, поэтому это место пока в резерве
 #define REGS_AI_BOUND (REGS_HOLD_BOUND+16)
-
 
 #define USARTx                           USART1
 #define USARTx_CLK_ENABLE()              __HAL_RCC_USART1_CLK_ENABLE();
@@ -116,8 +113,6 @@ extern "C" {
 #else
 #define NMBS_DEBUG_PRINT(...) (void) (0)
 #endif
-
-
 
 #ifdef NMBS_DEBUG
 #include <stdio.h>
@@ -169,7 +164,6 @@ void Error_Handler(void);
 
 #define STROBE_Pin GPIO_PIN_5
 #define STROBE_GPIO_Port GPIOB
-
 
 /* USER CODE BEGIN Private defines */
 

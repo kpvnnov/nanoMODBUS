@@ -22,7 +22,7 @@
 
 /* USER CODE BEGIN 0 */
 
-extern uint16_t Speed;
+extern uint32_t Speed;
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart1;

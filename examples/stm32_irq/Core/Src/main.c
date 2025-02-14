@@ -62,9 +62,14 @@
 #define RED_TOGGLE()    HAL_GPIO_TogglePin(LED1_SYS_AL_GPIO_Port, LED1_SYS_AL_Pin)
 #ifdef NMBS_DEBUG
 
-#define strobe_toggle(); if (get_debug_comport()) {HAL_GPIO_TogglePin(STROBE_GPIO_Port, STROBE_Pin); MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%d strobe ",HAL_GetTick());}
+inline void strobe_toggle() {
+	if (get_debug_comport()) {
+		HAL_GPIO_TogglePin(STROBE_GPIO_Port, STROBE_Pin);
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%d strobe ",HAL_GetTick());
+	}
+}
 #else
-#define strobe_toggle(); (void) (0);
+#define strobe_toggle() (void) (0)
 #endif
 
 #define SetRS485Receive() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_RESET)
@@ -88,7 +93,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint16_t Speed = 9600;
+//uint32_t Speed = 9600;
+uint32_t Speed = 115200;
 nmbs_t nmbs;
 volatile bool packet_sended = false; //в текущем цикле была передача
 
@@ -200,6 +206,18 @@ void flush_debug() {
  Prescaler=x-1;
  y(второй делитель )=SystemCoreClock*k/(Speed*x)
  Period=y-1
+ */
+/*
+ Speed:9600
+ FastModbus_Prescaler:499 Arbitrage_Period:359 Window_Period:129
+ Normal_Prescaler:2399 Normal_Period:80
+ */
+/*
+ Speed:115200
+ FastModbus_Prescaler:40 Arbitrage_Period:100 Window_Period:181
+ Normal_Prescaler:2399 Normal_Period:34
+ MR6 1.01 ms ожидание арбитража 172.967 mks арбитражное окно
+
  */
 
 void compute_timer() {
@@ -358,30 +376,39 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 }
 
 void nano_RecieveMode(void) {
-	SetRS485Receive();
-	packet_sended = false;
 
 	/* Generate an update event to reload the Prescaler
 	 and the repetition counter (only for advanced timer) value immediately */
 	htim6.Instance->EGR = TIM_EGR_UG;
 
-	/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-	if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-		/* Clear the update flag */
-		CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-	}
-	if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
-		/* Starting Error */
-		Error_Handler();
-	}
+	SetRS485Receive();
+	packet_sended = false;
 	msg_rec_reset(&nmbs);
-
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n%ld nano_RecieveMode buf_rec:%d\n", HAL_GetTick()
 			, nmbs.msg.buf_rec);
-
 //Receive of data in IRQ Mode
 	if (HAL_UART_Receive_IT(&huart2, nmbs.msg.buf, 1) != HAL_OK) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
+		Error_Handler();
+	}
+	/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
+	// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
+	// because the timer runs a little slower than the CPU
+	// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
+	/*
+
+	 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+	 // Clear the update flag
+	 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+	 }
+	 */
+
+	while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE))
+		;
+	CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+
+	if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+		/* Starting Error */
 		Error_Handler();
 	}
 }
@@ -429,27 +456,31 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart == &huart2) {
-
-		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"%ld uart %02x buf_rec:%d ", HAL_GetTick(),
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"%d uart %02x buf_rec:%d ", HAL_GetTick(),
 				nmbs.msg.buf[nmbs.msg.buf_rec], nmbs.msg.buf_rec);
 		switch (fast_mb_mode) {
 		case mb_none:	//продолжаем обычный приём
-
+			strobe_toggle();
 			if (msg_buf_inc(&nmbs)) {
 				switch (check_fast_modbus(&nmbs, 5)) {	//проверяем 5 байт
 				case fast_mb_none: //продолжаем приём данных как обычно
 					//restart 3.5 timer
-
-					/* Generate an update event to reload the Prescaler
-					 and the repetition counter (only for advanced timer) value immediately */
-					htim6.Instance->EGR = TIM_EGR_UG;
-
-					/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-					if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-						/* Clear the update flag */
-						CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+					//по нормальному надо выключать таймер, если через HAL, то он стопается и запрещаются прерывания таймера
+					if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+						// Starting Error
+						Error_Handler();
 					}
-					strobe_toggle();
+					// Generate an update event to reload the Prescaler
+					// and the repetition counter (only for advanced timer) value immediately
+					htim6.Instance->EGR = TIM_EGR_UG;
+					/* выносим этот блок за пределы switch
+					 // Check if the update flag is set after the Update Generation, if so clear the UIF flag
+					 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+					 // Clear the update flag
+					 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+					 MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"clear timer flag ");
+					 }
+					 выносим этот блок за пределы switch */
 					break;
 					//Начало сканирования
 					//Мастер отправляет в шину команду «Начать сканирование», которая фактически звучит: «Есть кто?».
@@ -459,7 +490,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					fast_mb_mode = mb_begin_scan;
 				case fast_mb_next_scan: //команда продолжить сканирование практически такая же как и начать скнирование
 					//разница лишь в отсутсвии установки  только отличается i_am_not_scaned=true
-					strobe_toggle();
 					//stop timer 3.5 word
 					if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
 						// Starting Error
@@ -469,19 +499,23 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 						Error_Handler();
 					}
 					MX_TIM6_Init(1);//инициализируем таймер на ожидание начала арбитража
-					/* Generate an update event to reload the Prescaler
-					 and the repetition counter (only for advanced timer) value immediately */
-					htim6.Instance->EGR = TIM_EGR_UG;
+					// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
+					// поэтому пока комментируем здесь эту операцию reload
+					// Generate an update event to reload the Prescaler
+					// and the repetition counter (only for advanced timer) value immediately
+					//htim6.Instance->EGR = TIM_EGR_UG;
 
-					/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-					if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-						/* Clear the update flag */
-						CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-					}
-					if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
-						/* Starting Error */
-						Error_Handler();
-					}
+					/* выносим этот блок за пределы switch
+					 // Check if the update flag is set after the Update Generation, if so clear the UIF flag
+					 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+					 // Clear the update flag
+					 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+					 }
+					 if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+					 // Starting Error
+					 Error_Handler();
+					 }
+					 выносим этот блок за пределы switch */
 
 					if (fast_mb_mode != mb_begin_scan) {
 						MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%d start timer mb_next_scan\n", HAL_GetTick());
@@ -495,6 +529,25 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					make_arbitrage_data(&nmbs); //сгенерировать арбитражное 32 битное значение
 					break;
 				default:
+					Error_Handler();
+				}
+				//внутри предыдущего switch везде выполняется HAL_TIM_Base_Stop_IT а затем перезагружается TIM_EGR_UG
+				// Check if the update flag is set after the Update Generation, if so clear the UIF flag
+				// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
+				// because the timer runs a little slower than the CPU
+				// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
+				/*
+				 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+				 // Clear the update flag
+				 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+				 }
+				 */
+				while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE))
+					;
+				CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+
+				if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+					/* Starting Error */
 					Error_Handler();
 				}
 				//Receive next symbol
@@ -527,7 +580,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
 				Error_Handler();
 			}
-
 			break;
 		case mb_run_arbitrage:
 		case mb_next_arbitrage:
@@ -542,7 +594,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
 					Error_Handler();
 				}
-
 			} else {
 				// arbitrage_window - 1 = это номер арбитражного окна, в котором приняли байт
 				if (!arbitrage_loss) {
@@ -601,12 +652,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					// Starting Error
 					Error_Handler();
 				}
-
-				//чуть позже эту порнографию перенести внутрь обработки протокола
-				//switch (check_fast_modbus(&nmbs,0)) { //надо проверить не пришла ли расширенная команда fastmodbus
-				//case fast_mb_emulate: //субкоманда эмуляции стандартных запросов, обращение по серийному номеру
-				//	break;
-				//default: //обычные команды
 				packet_sended = false; //надо знать была ли передача данных
 				nmbs_error res_poll = nmbs_server_poll(&nmbs);
 				if (NMBS_ERROR_NONE != res_poll) {
@@ -627,14 +672,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					}
 					nano_RecieveMode();
 				}
-				//break;
-				//}
 			}
 			break;
 		case mb_begin_scan: //сработал таймер арбитража команды начала сканирования
 		case mb_next_scan: //сработал таймер арбитража команды продолжения сканирования
-			strobe_toggle()
-			;
+			strobe_toggle();
 			//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
 			//stop timer arbitrage interval
 			if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
@@ -645,19 +687,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				Error_Handler();
 			}
 			MX_TIM6_Init(2);	//инициализируем таймер на арбитражное окно
-			/* Generate an update event to reload the Prescaler
-			 and the repetition counter (only for advanced timer) value immediately */
-			htim6.Instance->EGR = TIM_EGR_UG;
-
-			/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-			if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-				/* Clear the update flag */
-				CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-			}
-			if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
-				/* Starting Error */
-				Error_Handler();
-			}
+			// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
+			// поэтому пока комментируем здесь эту операцию reload
+			// Generate an update event to reload the Prescaler
+			// and the repetition counter (only for advanced timer) value immediately
+			//htim6.Instance->EGR = TIM_EGR_UG;
 
 			if (fast_mb_mode == mb_begin_scan) {
 
@@ -671,39 +705,34 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				fast_mb_mode = mb_next_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
 			}
 
+			// Check if the update flag is set after the Update Generation, if so clear the UIF flag
+			// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
+			// because the timer runs a little slower than the CPU
+			// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
+			/*
+			 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+			 // Clear the update flag
+			 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+			 }
+			 */
+
+			while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE))
+				;
+			CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+
+			if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+				/* Starting Error */
+				Error_Handler();
+			}
+
 			//break; он здесь специально не нужен, чтобы обработать первое арбитражное окно
 			//в следующем case сразу после окончания таймера начала арбитража
 		case mb_run_arbitrage:
 		case mb_next_arbitrage:
-			strobe_toggle()
-			;
+			strobe_toggle();
 			if (arbitrage_window == 32) { //закончился арбитраж
 				/* судя по анализу обмена никакого таймаута в этом случае нет, отправляем сразу по окончании арбитражного окна
-				 //stop timer 3.5 word
-				 if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
-				 // Starting Error
-				 Error_Handler();
-				 }
-				 if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
-				 Error_Handler();
-				 }
-				 MX_TIM6_Init(0);	//инициализируем таймер на нормальный модбас
-
-				 // Generate an update event to reload the Prescaler
-				 // and the repetition counter (only for advanced timer) value immediately
-				 htim6.Instance->EGR = TIM_EGR_UG;
-
-				 // Check if the update flag is set after the Update Generation, if so clear the UIF flag
-				 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-				 // Clear the update flag
-				 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-				 }
-				 if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
-				 // Starting Error
-				 Error_Handler();
-				 }
 				 убираем реинициализацию на 3.5, отправляем сразу после окончания арбитражного окна*/
-#ifdef NMBS_DEBUG
 				if (arbitrage_loss) {
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n%d end arb win:%d\n", HAL_GetTick(),
 							arbitrage_window);
@@ -711,7 +740,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n!!!WE WIN ARBITRAGE %d end arb win:%d\n",
 							HAL_GetTick(), arbitrage_window);
 				}
-#endif
 				arbitrage_window++;
 				break;
 			} else if (arbitrage_window >= 33) { //таймер 3.5 секунды после того как закончился арбитраж сработал

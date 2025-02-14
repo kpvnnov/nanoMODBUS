@@ -21,7 +21,7 @@
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
-extern uint16_t Speed;
+extern uint32_t Speed;
 extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 		Normal_Prescaler, Normal_Period;
 /* USER CODE END 0 */
