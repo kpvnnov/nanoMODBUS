@@ -37,7 +37,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
-//#define NMBS_DEBUG 1
+#define NMBS_DEBUG 1
 
 #define BOOLEAN2INT (0x0001) //значение для integer значений, которые должны быть единицей
 //#define BOOLEAN2INT (0xFFFF)
@@ -48,6 +48,15 @@ extern "C" {
 #define PATCH_VER 11
 //значение знаковое
 #define SUFFIX_VER 0
+
+
+#define __HAL_ENTER_CRITICAL_SECTION() \
+    uint32_t PriMsk; \
+    PriMsk = __get_PRIMASK(); \
+    __set_PRIMASK(1);
+
+#define __HAL_EXIT_CRITICAL_SECTION() \
+    __set_PRIMASK(PriMsk);
 
 
 // для хранения данных у нас есть server_registers

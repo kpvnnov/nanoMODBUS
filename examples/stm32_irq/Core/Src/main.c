@@ -42,7 +42,7 @@
 #include <errno.h>
 #include <sys/unistd.h> // STDOUT_FILENO, STDERR_FILENO
 #include <stdio.h>
-#define NMBS_DEBUG_DUMP(BUF,LEN) printf(BUF, LEN)
+#define NMBS_DEBUG_DUMP(BUF,LEN) print_dump(BUF, LEN)
 #else
 #define NMBS_DEBUG_DUMP(...) (void) (0)
 #endif
@@ -59,9 +59,8 @@
 /* USER CODE BEGIN PD */
 
 //invert the red LED
-#define RED_TOGGLE()    HAL_GPIO_TogglePin(LED1_SYS_AL_GPIO_Port, LED1_SYS_AL_Pin);
-#define STROBE_TOGGLE()    HAL_GPIO_TogglePin(STROBE_GPIO_Port, STROBE_Pin);
-
+#define RED_TOGGLE()    HAL_GPIO_TogglePin(LED1_SYS_AL_GPIO_Port, LED1_SYS_AL_Pin)
+#define STROBE_TOGGLE()    HAL_GPIO_TogglePin(STROBE_GPIO_Port, STROBE_Pin);printf("%d strobe ", HAL_GetTick())
 
 #define SetRS485Receive() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_RESET)
 #define SetRS485Transmit() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_SET)
@@ -86,6 +85,7 @@
 /* USER CODE BEGIN PV */
 uint16_t Speed = 9600;
 nmbs_t nmbs;
+volatile bool packet_sended = false; //в текущем цикле была передача
 
 uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 		Normal_Prescaler, Normal_Period;
@@ -116,15 +116,17 @@ void SystemClock_Config(void);
 
 #ifdef NMBS_DEBUG
 
-void flush_debug(bool from_isr) {
+//void flush_debug(bool from_isr) {
+void flush_debug() {
 	if (debug_uart_run)
 		return;
 	if (pos_print != pos_debug) {
 		int len_for_send;
 		volatile fast_quit = false;
 		if (pos_print <= pos_debug) { //нормальный ход
-			if (!from_isr)
-				__disable_irq();
+			//if (!from_isr)
+				//__disable_irq();
+			__HAL_ENTER_CRITICAL_SECTION();
 			int len_for_send = pos_debug - pos_print;
 			int pos_for_send = pos_print;
 			if (len_for_send == 0) {
@@ -133,8 +135,9 @@ void flush_debug(bool from_isr) {
 				pos_print += len_for_send;
 			}
 
-			if (!from_isr)
-				__enable_irq();
+			//if (!from_isr)
+			//	__enable_irq();
+			__HAL_EXIT_CRITICAL_SECTION();
 			if (fast_quit)
 				return;
 
@@ -146,13 +149,15 @@ void flush_debug(bool from_isr) {
 					len_for_send);
 
 		} else {    	//отправим до конца массива и сдвигаем указатель на ноль
-			if (!from_isr)
-				__disable_irq();
+			//if (!from_isr)
+			//	__disable_irq();
+			__HAL_ENTER_CRITICAL_SECTION();
 			int len_for_send = sizeof(debug_buffer) - pos_print;
 			int pos_for_send = pos_print;
 			pos_print = 0;
-			if (!from_isr)
-				__enable_irq();
+			//if (!from_isr)
+			//	__enable_irq();
+			__HAL_EXIT_CRITICAL_SECTION();
 
 			if ((pos_for_send + len_for_send) > sizeof(debug_buffer)) {
 				Error_Handler();
@@ -346,6 +351,7 @@ int32_t read_from_buf(uint8_t *buf, uint16_t count, int32_t byte_timeout_ms,
 int32_t write_serial(const uint8_t *buf, uint16_t count,
 		int32_t byte_timeout_ms, void *arg) {
 	SetRS485Transmit();
+	packet_sended = true;
 	HAL_StatusTypeDef res;
 	res = HAL_UART_AbortReceive(&huart2);
 	if (res != HAL_OK) {
@@ -362,6 +368,8 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 
 void nano_RecieveMode(void) {
 	SetRS485Receive();
+	packet_sended = false;
+
 	/* Generate an update event to reload the Prescaler
 	 and the repetition counter (only for advanced timer) value immediately */
 	htim6.Instance->EGR = TIM_EGR_UG;
@@ -376,6 +384,11 @@ void nano_RecieveMode(void) {
 		Error_Handler();
 	}
 	msg_rec_reset(&nmbs);
+#ifdef NMBS_DEBUG
+	printf("\n%ld nano_RecieveMode buf_rec:%d\n", HAL_GetTick()
+			, nmbs.msg.buf_rec);
+#endif
+
 //Receive of data in IRQ Mode
 	if (HAL_UART_Receive_IT(&huart2, nmbs.msg.buf, 1) != HAL_OK) {
 		NMBS_DEBUG_PRINT("HAL_UART_Receive_IT error\n");
@@ -432,7 +445,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart == &huart2) {
 
 #ifdef NMBS_DEBUG
-		printf("%ld uart %02x ", HAL_GetTick(), nmbs.msg.buf[nmbs.msg.buf_rec]);
+		printf("%ld uart %02x buf_rec:%d ", HAL_GetTick(),
+				nmbs.msg.buf[nmbs.msg.buf_rec], nmbs.msg.buf_rec);
 #endif
 		switch (fast_mb_mode) {
 		case mb_none:	//продолжаем обычный приём
@@ -442,16 +456,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				case fast_mb_none: //продолжаем приём данных как обычно
 					//restart 3.5 timer
 
-							/* Generate an update event to reload the Prescaler
-							 and the repetition counter (only for advanced timer) value immediately */
-							htim6.Instance->EGR = TIM_EGR_UG;
+					/* Generate an update event to reload the Prescaler
+					 and the repetition counter (only for advanced timer) value immediately */
+					htim6.Instance->EGR = TIM_EGR_UG;
 
-							/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-							if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-								/* Clear the update flag */
-								CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-							}
-					STROBE_TOGGLE();
+					/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
+					if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+						/* Clear the update flag */
+						CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+					}
+					STROBE_TOGGLE()
+					;
 					break;
 					//Начало сканирования
 					//Мастер отправляет в шину команду «Начать сканирование», которая фактически звучит: «Есть кто?».
@@ -461,7 +476,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					fast_mb_mode = mb_begin_scan;
 				case fast_mb_next_scan: //команда продолжить сканирование практически такая же как и начать скнирование
 					//разница лишь в отсутсвии установки  только отличается i_am_not_scaned=true
-					STROBE_TOGGLE();
+					STROBE_TOGGLE()
+					;
 					//stop timer 3.5 word
 					if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
 						// Starting Error
@@ -492,7 +508,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 						fast_mb_mode = mb_next_scan;
 					} else {
 #ifdef NMBS_DEBUG
-						printf("%d start timer mb_begin_scan\n", HAL_GetTick());
+						printf("%d start timer\n!!YES mb_begin_scan\n",
+								HAL_GetTick());
 #endif
 					}
 					arbitrage_window = 0;
@@ -513,6 +530,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 #ifdef NMBS_DEBUG
 				printf("\n!!overflow input buffer!!\n");
 #endif
+				//stop timer 3.5 word
+				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+					// Starting Error
+					Error_Handler();
+				}
 				nano_RecieveMode();
 			}
 			break;
@@ -565,14 +587,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 #endif
 						arbitrage_loss = true;
 					}
-				}else{
+				} else {
 #ifdef NMBS_DEBUG
-						printf("w%02d %d loss ", arbitrage_window,
-								HAL_GetTick()); //мы уже проиграли арбитраж, поэтому тихо поём о поражении
+					printf("w%02d %d loss ", arbitrage_window, HAL_GetTick()); //мы уже проиграли арбитраж, поэтому тихо поём о поражении
 #endif
 
 				}
 			}
+/* смысла нет арбитраж складывать в буфер
 			if (msg_buf_inc(&nmbs)) {
 				//Receive next symbol
 				if (HAL_UART_Receive_IT(&huart2,
@@ -586,6 +608,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 #endif
 				nano_RecieveMode();
 			}
+			*/
+			//Receive next symbol
+			if (HAL_UART_Receive_IT(&huart2,
+					&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
+				NMBS_DEBUG_PRINT("HAL_UART_Receive_IT error\n");
+				Error_Handler();
+			}
+
 
 			break;
 		default:
@@ -618,6 +648,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				//case fast_mb_emulate: //субкоманда эмуляции стандартных запросов, обращение по серийному номеру
 				//	break;
 				//default: //обычные команды
+				packet_sended = false; //надо знать была ли передача данных
 				nmbs_error res_poll = nmbs_server_poll(&nmbs);
 				if (NMBS_ERROR_NONE != res_poll) {
 					NMBS_DEBUG_PRINT(
@@ -626,7 +657,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					NMBS_DEBUG_PRINT("%s\n", nmbs_strerror(res_poll));
 					NMBS_DEBUG_DUMP((uint8_t* )&nmbs, (uint16_t )Size);
 
-					if (HAL_UART_AbortReceive(&huart2) != HAL_OK) {
+				}
+				if (!packet_sended) {
+					HAL_StatusTypeDef res;
+					res = HAL_UART_AbortReceive(&huart2);
+					if (res != HAL_OK) {
+						NMBS_DEBUG_PRINT("HAL_UART_AbortReceive error %d\n",
+								res);
 						Error_Handler();
 					}
 					nano_RecieveMode();
@@ -681,34 +718,42 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			//в следующем case сразу после окончания таймера начала арбитража
 		case mb_run_arbitrage:
 		case mb_next_arbitrage:
-			STROBE_TOGGLE();
+			STROBE_TOGGLE()
+			;
 			if (arbitrage_window == 32) { //закончился арбитраж
-				//stop timer 3.5 word
-				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
-					// Starting Error
-					Error_Handler();
-				}
-				if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
-					Error_Handler();
-				}
-				MX_TIM6_Init(0);	//инициализируем таймер на нормальный модбас
+				/* судя по анализу обмена никакого таймаута в этом случае нет, отправляем сразу по окончании арбитражного окна
+				 //stop timer 3.5 word
+				 if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+				 // Starting Error
+				 Error_Handler();
+				 }
+				 if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
+				 Error_Handler();
+				 }
+				 MX_TIM6_Init(0);	//инициализируем таймер на нормальный модбас
 
-				/* Generate an update event to reload the Prescaler
-				 and the repetition counter (only for advanced timer) value immediately */
-				htim6.Instance->EGR = TIM_EGR_UG;
+				 // Generate an update event to reload the Prescaler
+				 // and the repetition counter (only for advanced timer) value immediately
+				 htim6.Instance->EGR = TIM_EGR_UG;
 
-				/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-				if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-					/* Clear the update flag */
-					CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-				}
-				if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
-					/* Starting Error */
-					Error_Handler();
-				}
+				 // Check if the update flag is set after the Update Generation, if so clear the UIF flag
+				 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+				 // Clear the update flag
+				 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+				 }
+				 if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+				 // Starting Error
+				 Error_Handler();
+				 }
+				 убираем реинициализацию на 3.5, отправляем сразу после окончания арбитражного окна*/
 #ifdef NMBS_DEBUG
-				printf("\n%d end arb win:%d\n", HAL_GetTick(),
-						arbitrage_window);
+				if (arbitrage_loss) {
+					printf("\n%d end arb win:%d\n", HAL_GetTick(),
+							arbitrage_window);
+				} else {
+					printf("\n!!!WE WIN ARBITRAGE %d end arb win:%d\n",
+							HAL_GetTick(), arbitrage_window);
+				}
 #endif
 				arbitrage_window++;
 				break;
@@ -1109,7 +1154,25 @@ int _write(int file, char *data, int len) {
 		Error_Handler();
 		pos_debug = 0;
 	}
+	if (!debug_uart_run){
+     flush_debug();
+	}
+
 	return total_len;
+}
+
+void print_dump(uint8_t *buf, uint16_t len) {
+    uint16_t offset = 0;
+    while (len) {
+        printf("%04x ", offset);
+        for (uint8_t x = 0; x < (len > 16 ? 16 : len); x++) {
+            printf("%02x ", *buf++);
+
+        }
+        len -= len > 16 ? 16 : len;
+        offset += 16;
+        printf("\n");
+    }
 }
 
 #endif
@@ -1196,9 +1259,9 @@ int main(void) {
 		//Here you can add the logic of the main program. At this point, modbus communication is in interrupt mode
 		RED_TOGGLE();
 #ifdef NMBS_DEBUG
-		flush_debug(false);
+		//flush_debug(false);
 #endif
-		HAL_Delay(100);
+		HAL_Delay(1000);
 	}
 	/* USER CODE END 3 */
 }
