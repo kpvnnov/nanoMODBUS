@@ -38,6 +38,29 @@ extern "C" {
 /* USER CODE BEGIN ET */
 
 #define NMBS_DEBUG 1
+//выводим дополнительно изменения уровня на внешние ноги
+//в рабочей версии ОТКЛЮЧАТЬ!!!!
+#define NMBS_DEBUG_PIN (get_debug_comport() && NMBS_DEBUG)
+
+//задаём уровень отладки fast modbus
+#define FM_LEVEL_HIGH_DEBUG DEBUG_HIGH_TRACE
+//#define FM_LEVEL_DEBUG DEBUG_TRACE
+#define FM_LEVEL_DEBUG DEBUG_TRACE
+
+#define DEBUG_ERROR 0
+#define DEBUG_WARN  1
+#define DEBUG_INFO  2
+#define DEBUG_TRACE  3
+#define DEBUG_HIGH_TRACE  4
+
+
+#define get_verbose_debug(debug_level) (debug_level<=DEBUG_HIGH_TRACE)
+//#define get_verbose_debug(debug_level) (debug_level<=config.otladka.verbose)
+
+//включение отладки программным способом
+//#define get_debug_comport() (config.otladka.comport)
+#define get_debug_comport() (1)
+
 
 #define BOOLEAN2INT (0x0001) //значение для integer значений, которые должны быть единицей
 //#define BOOLEAN2INT (0xFFFF)
@@ -92,6 +115,31 @@ extern "C" {
 #define NMBS_DEBUG_PRINT(...) printf(__VA_ARGS__)
 #else
 #define NMBS_DEBUG_PRINT(...) (void) (0)
+#endif
+
+
+
+#ifdef NMBS_DEBUG
+#include <stdio.h>
+//#define MP_DEBUG_PRINT(VERBOSE_LEVEL,FMT...) printf(__VA_ARGS__)
+//#define MP_DEBUG_PRINT(VERBOSE_LEVEL,FMT...) if (get_verbose_debug(VERBOSE_LEVEL)) printf(__VA_ARGS__)
+#define MP_DEBUG_PRINT(VERBOSE_LEVEL,FMT...) if (get_verbose_debug(VERBOSE_LEVEL) && get_debug_comport()) printf(FMT)
+#define MP_DEBUG_DUMP(VERBOSE_LEVEL,BUF, LEN) if (get_verbose_debug(VERBOSE_LEVEL) && get_debug_comport()) print_dump(BUF, LEN)
+
+#else
+#define MP_DEBUG_PRINT(...) (void) (0)
+#define MP_DEBUG_DUMP(VERBOSE_LEVEL,BUF, LEN) (void) (0)
+#endif
+
+#ifdef NMBS_DEBUG
+
+#define FASTMODBUS_DEBUG
+#ifdef FASTMODBUS_DEBUG
+#define MP_FMB_DEBUG_PRINT MP_DEBUG_PRINT
+#else
+#define MP_FMB_DEBUG_PRINT(...) (void) (0)
+#endif
+
 #endif
 
 /* USER CODE END ET */
