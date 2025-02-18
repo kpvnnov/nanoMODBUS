@@ -448,7 +448,7 @@ static nmbs_error recv_req_header(nmbs_t* nmbs, bool* first_byte_received) {
         if (nmbs->msg.unit_id == NMBS_BROADCAST_ADDRESS)
             nmbs->msg.broadcast = true;
         else if (nmbs->msg.unit_id == NMBS_FMB_BROADCAST_ADDRESS){
-            nmbs->msg.ignored = false; //зачем? если при инициализации сбросили
+            nmbs->msg.ignored = true;
             nmbs->msg.fastmodbus_req = true;
         }
         else if (nmbs->msg.unit_id != nmbs->address_rtu)
@@ -1833,6 +1833,8 @@ static nmbs_error handle_emulate_standart(nmbs_t* nmbs) {
     fmb_address |= get_2(nmbs);
     if (nmbs->msg.fastmodbus_address!=fmb_address)
      nmbs->msg.ignored = true; //ignore request for another serial address
+    else
+     nmbs->msg.ignored = false;//this is our fast modbus address, answer
 
     //read standart request
     err = recv(nmbs, 1);
@@ -2487,7 +2489,7 @@ nmbs_error nmbs_receive_raw_pdu_response(nmbs_t* nmbs, uint8_t* data_out, uint8_
 	put_1(nmbs, 0x03);
 	put_2(nmbs, nmbs->msg.fastmodbus_address >> 16);
 	put_2(nmbs, nmbs->msg.fastmodbus_address & 0xFFFF);
-	put_1(nmbs, nmbs->msg.unit_id);
+	put_1(nmbs, nmbs->address_rtu);
 
 	nmbs_error err = send_msg(nmbs);
 //	if (err != NMBS_ERROR_NONE)

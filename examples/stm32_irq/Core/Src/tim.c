@@ -75,6 +75,11 @@ void MX_TIM6_Init(uint16_t timer_mode) {
 	 y(второй делитель )=SystemCoreClock*k/(Speed*x)
 	 Period=y-1
 	 */
+	/*
+	 * Для команды сканирования (0x60) действуют устаревшие правила арбитража,
+	 * в которых длительность окна составляет 20 бит при текущем baud rate,
+	 * а начало арбитража - через 44 бита после последнего принятого байта запроса - 3.5 байта.
+	 */
 	switch (timer_mode) {
 	case 0:
 		//normal 3.5 mode timer
@@ -83,15 +88,26 @@ void MX_TIM6_Init(uint16_t timer_mode) {
 
 		break;
 	case 1:
-		// begin arbitrage max(3 symbols, (12 bits + 800us))
+		// begin arbitrage max(3 symbols, (12 bits + 800us)) для новой 0x46
 		htim6.Init.Prescaler = FastModbus_Prescaler;
 		htim6.Init.Period = Arbitrage_Period;
 
 		break;
 	case 2:
-		// arbitrage windows
+		// arbitrage windows для новой 0x46
 		htim6.Init.Prescaler = FastModbus_Prescaler;
 		htim6.Init.Period = Window_Period;
+		break;
+	case 3:
+		// begin arbitrage max(3 symbols, (12 bits + 800us)) для старой 0x60
+		htim6.Init.Prescaler = FastModbus_Prescaler;
+		htim6.Init.Period = Arbitrage_Periodx60;
+
+		break;
+	case 4:
+		// arbitrage windows для старой 0x60
+		htim6.Init.Prescaler = FastModbus_Prescaler;
+		htim6.Init.Period = Window_Periodx60;
 		break;
 	default:
 		Error_Handler();
