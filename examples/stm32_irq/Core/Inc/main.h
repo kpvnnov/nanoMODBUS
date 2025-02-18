@@ -50,16 +50,28 @@ extern "C" {
 //#define FM_LEVEL_DEBUG DEBUG_TRACE
 #define FM_LEVEL_DEBUG DEBUG_TRACE
 
+//если закомментировать, то полностью убирается код из исходников
+#define FASTMODBUS_DEBUG
+//не отвечать на старые команды протокола
+#define ASK_OLD_FASTMODBUS (0)
+
+
 #define DEBUG_ERROR 0
 #define DEBUG_WARN  1
 #define DEBUG_INFO  2
 #define DEBUG_TRACE  3
 #define DEBUG_HIGH_TRACE  4
 
-#define get_verbose_debug(debug_level) (debug_level<=DEBUG_HIGH_TRACE)
-//#define get_verbose_debug(debug_level) (debug_level<=DEBUG_ERROR)
+//#define get_verbose_debug(debug_level) (debug_level<=DEBUG_HIGH_TRACE)
+#define get_verbose_debug(debug_level) (debug_level<=DEBUG_ERROR)
 
 //#define get_verbose_debug(debug_level) (debug_level<=config.otladka.verbose)
+
+#include <stdbool.h>
+extern volatile bool config_otladka_comport;
+inline bool otladka_comport(){
+	return config_otladka_comport;
+}
 
 //включение отладки программным способом
 //#define get_debug_comport() (config.otladka.comport)
@@ -131,7 +143,7 @@ extern "C" {
 
 #ifdef NMBS_DEBUG
 
-#define FASTMODBUS_DEBUG
+
 #ifdef FASTMODBUS_DEBUG
 #define MP_FMB_DEBUG_PRINT MP_DEBUG_PRINT
 #else

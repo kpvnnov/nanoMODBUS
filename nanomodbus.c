@@ -392,7 +392,7 @@ static void put_msg_header(nmbs_t* nmbs, uint16_t data_length) {
     if (nmbs->platform.transport == NMBS_TRANSPORT_RTU) {
         if (nmbs->msg.fastmodbus_req){//add fastmodbus answer
 	    put_1(nmbs, 0xFD);
-	    put_1(nmbs, 0x46);
+	    put_1(nmbs, nmbs->msg.old_arbitrage? 0x60:0x46);
 	    put_1(nmbs, 0x09);
 	    put_2(nmbs, nmbs->msg.fastmodbus_address >> 16);
 	    put_2(nmbs, nmbs->msg.fastmodbus_address & 0xFFFF);
@@ -1842,7 +1842,7 @@ static nmbs_error handle_emulate_standart(nmbs_t* nmbs) {
        return err;
 
     nmbs->msg.fc = get_1(nmbs);
-    if (nmbs->msg.fc == 0x46) //check for block recursive request
+    if (nmbs->msg.fc == 0x46 || nmbs->msg.fc == 0x60) //check for block recursive request
         return NMBS_ERROR_INVALID_REQUEST;
 
     err = handle_req_fc(nmbs);
@@ -1937,6 +1937,7 @@ static nmbs_error handle_req_fc(nmbs_t* nmbs) {
 #endif
 #ifndef NMBS_SERVER_EMULATE_DISABLED
         case 0x46:
+        case 0x60:
             err = handle_emulate_standart(nmbs);
             break;
 #endif
@@ -2485,7 +2486,7 @@ nmbs_error nmbs_receive_raw_pdu_response(nmbs_t* nmbs, uint8_t* data_out, uint8_
 
 	msg_buf_reset(nmbs);
 	put_1(nmbs, 0xFD);
-	put_1(nmbs, 0x46);
+	put_1(nmbs, nmbs->msg.old_arbitrage? 0x60:0x46);
 	put_1(nmbs, 0x03);
 	put_2(nmbs, nmbs->msg.fastmodbus_address >> 16);
 	put_2(nmbs, nmbs->msg.fastmodbus_address & 0xFFFF);
@@ -2504,7 +2505,7 @@ nmbs_error nmbs_receive_raw_pdu_response(nmbs_t* nmbs, uint8_t* data_out, uint8_
 
 	msg_buf_reset(nmbs);
 	put_1(nmbs, 0xFD);
-	put_1(nmbs, 0x46);
+	put_1(nmbs, nmbs->msg.old_arbitrage? 0x60:0x46);
 	put_1(nmbs, 0x04);
 
 	nmbs_error err = send_msg(nmbs);

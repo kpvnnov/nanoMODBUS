@@ -113,11 +113,12 @@ uint32_t Speed = 9600;
 //uint32_t Speed = 115200;
 nmbs_t nmbs;
 volatile bool packet_sended = false; //в текущем цикле была передача
-volatile bool otladka_comport = true;
-volatile bool old_arbitrage;
+//volatile bool old_arbitrage;
+volatile bool config_otladka_comport = false;
 
 uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
-		Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler, Normal_Period;
+		Arbitrage_Periodx60, Window_Periodx60, Arbitrage_Periodx60,
+		Window_Periodx60, Normal_Prescaler, Normal_Period;
 
 // A single nmbs_bitfield variable can keep 2000 coils
 nmbs_bitfield server_coils = { 0 };
@@ -211,7 +212,7 @@ void flush_debug() {
  Period при скорости 38400 и ниже = используется k=36
  y(второй делитель)=SystemCoreClock*k/(Speed*x)
  если скорость выше 38400
- то расчёт k=8*speed/100000+1
+ то расчёт k=8*speed/10000+1
  Period=y-1
 
  2)длина арбитражного окна
@@ -232,6 +233,7 @@ void flush_debug() {
  */
 
 /*
+ первая проба измерения
  Speed:9600
  FastModbus_Prescaler:499 Arbitrage_Period:359 Window_Period:129
  Normal_Prescaler:2399 Normal_Period:80
@@ -244,6 +246,21 @@ void flush_debug() {
  MR6 3.719878(-одно арб окно) ms ожидание арбитража 1.3537  ms арбитражное окно
  6DO  ms ожидание арбитража  mks арбитражное окно
 
+ добавил два вида интервалов, вторая проверка
+ Speed:9600
+ FastModbus_Prescaler:499
+ Arbitrage_Period:  359     Window_Period:  129
+ Old Arbitrage_Period:  439 old Window_Period:  199
+ Normal_Prescaler:2399 Normal_Period:80
+ x46
+ MR6 3.719878 ms (35.7 бита?) ожидание арбитража 1.3537 (ровно 13!)  ms арбитражное окно
+ x60
+ MR6 4.648359  ms (44 бита?) ожидание арбитража 2.08677 ms (ровно 20!!) арбитражное окно
+
+ 0x46
+ 6DO 5.981 ms ожидание арбитража  1.353758 (ровно 13!) mks арбитражное окно
+ 0x60
+ 6DO 4,540645 ms (44 бита?) ожидание арбитража 2.08677 ms (ровно 20!!) арбитражное окно
 
  */
 /*
@@ -285,29 +302,9 @@ void compute_timer() {
 //вычисляем начало арбитража для новой команды 0x46
 	if (Speed <= 38400) {
 		k = 36;
-		switch (Speed) { //это количество битовых скоростей в roundip(800)
-		case 1200:
-			k += 1;
-			break;
-		case 2400:
-			k += 2;
-			break;
-		case 4800:
-			k += 4;
-			break;
-		case 9600:
-			k += 8;
-			break;
-		case 19200:
-			k += 16;
-			break;
-		case 38400:
-			k += 31;
-			break;
-		}
 
 	} else {
-		k = 8UL * Speed / 100000UL + 1;
+		k = 8UL * Speed / 10000UL + 1;
 	}
 	y = SystemCoreClock * k / (uint32_t) (Speed * x);
 	Arbitrage_Period = y - 1;
@@ -371,11 +368,11 @@ bool arbitrage_loss; //признак проигранного арбитраж�
 
 void make_arbitrage_data(nmbs_t *nmbs) {
 	if (i_am_not_scaned) {
-		arbitrage_word = (0b0110 << 24)
+		arbitrage_word = (0b0110 << 28)
 				+ (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
 	} else {
 		//а у отсканированных — с низким (0b1111)
-		arbitrage_word = (0b1111 << 24)
+		arbitrage_word = (0b1111 << 28)
 				+ (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
 	}
 
@@ -395,13 +392,13 @@ fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 		//MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"fb func 1\n");
 		if (nmbs->msg.buf[1] == 0x46 && nmbs->msg.buf[3] == 0x13
 				&& nmbs->msg.buf[4] == 0x90) { //проверка crc
-			old_arbitrage = false;
+			nmbs->msg.old_arbitrage = false;
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"begin 0x46 fmb scan\n");
 			return fast_mb_begin_scan;
 		}
-		if (nmbs->msg.buf[1] == 0x60 && nmbs->msg.buf[3] == 0x09
+		if (ASK_OLD_FASTMODBUS && nmbs->msg.buf[1] == 0x60 && nmbs->msg.buf[3] == 0x09
 				&& nmbs->msg.buf[4] == 0xF0) { //проверка crc
-			old_arbitrage = true;
+			nmbs->msg.old_arbitrage = true;
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"begin 0x60 fmb scan\n");
 			return fast_mb_begin_scan;
 		}
@@ -414,7 +411,7 @@ fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"next 0x46 fmb scan\n");
 			return fast_mb_next_scan;
 		}
-		if (nmbs->msg.buf[1] == 0x60 && nmbs->msg.buf[3] == 0x49
+		if (ASK_OLD_FASTMODBUS && nmbs->msg.buf[1] == 0x60 && nmbs->msg.buf[3] == 0x49
 				&& nmbs->msg.buf[4] == 0xF1) { //проверка crc
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"next 0x46 fmb scan\n");
 			return fast_mb_next_scan;
@@ -600,7 +597,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
 						critical_stop();
 					}
-					MX_TIM6_Init(old_arbitrage ? 3 : 1);//инициализируем таймер на ожидание начала арбитража
+					MX_TIM6_Init(nmbs.msg.old_arbitrage ? 3 : 1);//инициализируем таймер на ожидание начала арбитража
 					// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 					// поэтому пока комментируем здесь эту операцию reload
 					// Generate an update event to reload the Prescaler
@@ -802,7 +799,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
 				critical_stop();
 			}
-			MX_TIM6_Init(old_arbitrage ? 4 : 2);//инициализируем таймер на арбитражное окно
+			MX_TIM6_Init(nmbs.msg.old_arbitrage ? 4 : 2);//инициализируем таймер на арбитражное окно
 			// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 			// поэтому пока комментируем здесь эту операцию reload
 			// Generate an update event to reload the Prescaler
@@ -1325,11 +1322,12 @@ int main(void) {
 
 //MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Begin\n");
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", Speed, RTU_SERVER_ADDRESS);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"FastModbus_Prescaler:%d Arbitrage_Period:%ld Window_Period:%ld\n",
-			FastModbus_Prescaler, Arbitrage_Period, Window_Period);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Old Arbitrage_Period:%ld old Window_Period:%ld\n",
-			 Arbitrage_Periodx60, Window_Periodx60);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Normal_Prescaler:%ld Normal_Period:%d\n", Normal_Prescaler,
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"FastModbus_Prescaler:%ld\n", FastModbus_Prescaler);
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"    Arbitrage_Period:%5ld     Window_Period:%5ld\n",
+			Arbitrage_Period, Window_Period);
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Old Arbitrage_Period:%5ld old Window_Period:%5ld\n",
+			Arbitrage_Periodx60, Window_Periodx60);
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Normal_Prescaler:%ld Normal_Period:%ld\n", Normal_Prescaler,
 			Normal_Period);
 	nmbs_platform_conf platform_conf;
 	nmbs_platform_conf_create(&platform_conf);

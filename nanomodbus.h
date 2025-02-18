@@ -247,6 +247,7 @@ typedef struct nmbs_t {
         uint16_t transaction_id;
         bool broadcast;
         bool fastmodbus_req;
+        bool old_arbitrage;
         bool ignored;
         bool complete;
     } msg;
