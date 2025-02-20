@@ -53,7 +53,7 @@ extern "C" {
 //если закомментировать, то полностью убирается код из исходников
 #define FASTMODBUS_DEBUG
 //не отвечать на старые команды протокола
-#define ASK_OLD_FASTMODBUS (0)
+#define ASK_OLD_FASTMODBUS (1)
 
 
 #define DEBUG_ERROR 0
@@ -75,7 +75,7 @@ inline bool otladka_comport(){
 
 //включение отладки программным способом
 //#define get_debug_comport() (config.otladka.comport)
-#define get_debug_comport() (otladka_comport)
+#define get_debug_comport() (otladka_comport())
 
 #define BOOLEAN2INT (0x0001) //значение для integer значений, которые должны быть единицей
 //#define BOOLEAN2INT (0xFFFF)
@@ -102,6 +102,11 @@ inline bool otladka_comport(){
 #define REGS_HOLD_BOUND (REGS_ADDR_BOUND+16)
 //в AI модуле необходимо будет ещё хранить данные с различных АЦП, поэтому это место пока в резерве
 #define REGS_AI_BOUND (REGS_HOLD_BOUND+16)
+
+//управление включением передачи
+#define SetRS485Receive() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_RESET)
+#define SetRS485Transmit() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_SET)
+
 
 #define USARTx                           USART1
 #define USARTx_CLK_ENABLE()              __HAL_RCC_USART1_CLK_ENABLE();
