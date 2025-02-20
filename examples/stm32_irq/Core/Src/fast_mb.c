@@ -29,7 +29,6 @@
  */
 /* Includes ------------------------------------------------------------------*/
 //#include <stdbool.h>
-
 #include "main.h"
 #include "tim.h"
 #include "usart.h"
@@ -37,9 +36,6 @@
 
 #include "nanomodbus.h"
 #include "fast_mb.h"
-
-
-
 
 #ifdef NMBS_DEBUG
 
@@ -57,9 +53,7 @@ void flush_debug();
 #define strobe_toggle() (void) (0)
 #endif
 
-
 nmbs_error answer_scan(nmbs_t *nmbs);
-
 
 uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 		Arbitrage_Periodx60, Window_Periodx60, Arbitrage_Periodx60,
@@ -76,21 +70,19 @@ bool arbitrage_loss; //признак проигранного арбитраж�
 extern nmbs_t nmbs;
 extern volatile uint8_t packet_sended;
 
-
 inline void clear_tim_flag() {
 	volatile uint8_t counter = 100;
 	while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE) && counter--) {
 		if (counter == 0) {
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"\n!!BUG clear_tim_flag!!\n ");
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!!\n ");
 			critical_stop();
 		}
 	}
 	if (counter != 100)
-		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"\n!!!clear_tim_flag %d ",counter);
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "\n!!!clear_tim_flag %d ",
+				counter);
 	CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
 }
-
-
 //чтобы не терять время на математические операции коэффициенты делителя рассчитать заранее
 /* вычисляем две переменных
  1)начало арбитража
@@ -172,12 +164,11 @@ inline void clear_tim_flag() {
  MR6 1.01 ms ожидание арбитража 172.967 mks арбитражное окно
 
  */
-
 void compute_timer() {
 
 	uint32_t x, y;
 	uint32_t k;
-	uint32_t baudrate=get_baudrate()*100UL;
+	uint32_t baudrate = get_baudrate() * 100UL;
 
 	Normal_Prescaler = SystemCoreClock / (1000000UL / 50UL) - 1;
 	if (baudrate > 19200) {
@@ -214,60 +205,53 @@ void compute_timer() {
 	Window_Periodx60 = y - 1;
 
 }
-
-
 void make_arbitrage_data(nmbs_t *nmbs) {
 	if (i_am_not_scaned) {
 		arbitrage_word = (0b0110 << 28)
-				+ (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
+				| (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
 	} else {
 		//а у отсканированных — с низким (0b1111)
 		arbitrage_word = (0b1111 << 28)
-				+ (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
+				| (nmbs->msg.fastmodbus_address & 0x0FFFFFFF);
 	}
-
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\narb_word:%08lx\n", arbitrage_word);
 }
-
-
-
-
-
 fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 	if (length && nmbs->msg.buf_rec != length)
 		return fast_mb_none;
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"got %d bytes\n",length);
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "got %d bytes\n", length);
 	if (nmbs->msg.buf[0] != 0xFD)
 		return fast_mb_none;
 	if (nmbs->msg.buf[1] != 0x60 && nmbs->msg.buf[1] != 0x46)
 		return fast_mb_none;
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"got broadcast\n");
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "got broadcast\n");
 	switch (nmbs->msg.buf[2]) {
 	case 0x01: //Функция начала сканирования - 0x01
 		//MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"fb func 1\n");
 		if (nmbs->msg.buf[1] == 0x46 && nmbs->msg.buf[3] == 0x13
 				&& nmbs->msg.buf[4] == 0x90) { //проверка crc
 			nmbs->msg.old_arbitrage = false;
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"begin 0x46 fmb scan\n");
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "begin 0x46 fmb scan\n");
 			return fast_mb_begin_scan;
 		}
-		if (ASK_OLD_FASTMODBUS && nmbs->msg.buf[1] == 0x60 && nmbs->msg.buf[3] == 0x09
-				&& nmbs->msg.buf[4] == 0xF0) { //проверка crc
+		if (ASK_OLD_FASTMODBUS && nmbs->msg.buf[1] == 0x60
+				&& nmbs->msg.buf[3] == 0x09 && nmbs->msg.buf[4] == 0xF0) { //проверка crc
 			nmbs->msg.old_arbitrage = true;
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"begin 0x60 fmb scan\n");
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "begin 0x60 fmb scan\n");
 			return fast_mb_begin_scan;
 		}
 		break;
 	case 0x02: // Функция продолжения сканирования - 0x02
-		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\nfb func 2\n");
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\nfb func 2\n");
 
 		if (nmbs->msg.buf[1] == 0x46 && nmbs->msg.buf[3] == 0x53
 				&& nmbs->msg.buf[4] == 0x91) { //проверка crc
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"next 0x46 fmb scan\n");
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "next 0x46 fmb scan\n");
 			return fast_mb_next_scan;
 		}
-		if (ASK_OLD_FASTMODBUS && nmbs->msg.buf[1] == 0x60 && nmbs->msg.buf[3] == 0x49
-				&& nmbs->msg.buf[4] == 0xF1) { //проверка crc
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"next 0x46 fmb scan\n");
+		if (ASK_OLD_FASTMODBUS && nmbs->msg.buf[1] == 0x60
+				&& nmbs->msg.buf[3] == 0x49 && nmbs->msg.buf[4] == 0xF1) { //проверка crc
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "next 0x46 fmb scan\n");
 			return fast_mb_next_scan;
 		}
 
@@ -284,61 +268,46 @@ fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 		return fast_mb_emulate;
 		//break;
 	default:
-		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"normal fb\n");
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "normal fb\n");
 		return fast_mb_none;
 	}
 	return fast_mb_none;
 }
-
-
 void fastmodbus_RecieveMode(void) {
+	strobe_toggle();
 	SetRS485Receive();
+
 //Receive of data in IRQ Mode
 	if (HAL_UART_Receive_IT(&huart2, nmbs.msg.buf, 1) != HAL_OK) {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 		critical_stop();
 	}
-
+	strobe_toggle();
 }
-
 void nano_RecieveMode(void) {
-
+	strobe_toggle();
 	/* Generate an update event to reload the Prescaler
 	 and the repetition counter (only for advanced timer) value immediately */
 	htim6.Instance->EGR = TIM_EGR_UG;
-
 	SetRS485Receive();
 	packet_sended = false;
 	msg_rec_reset(&nmbs);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n%ld nano_RecieveMode buf_rec:%d\n", HAL_GetTick()
-			, nmbs.msg.buf_rec);
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecieveMode buf_rec:%d\n",
+			HAL_GetTick(), nmbs.msg.buf_rec);
 //Receive of data in IRQ Mode
+
 	if (HAL_UART_Receive_IT(&huart2, nmbs.msg.buf, 1) != HAL_OK) {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 		critical_stop();
 	}
-	/* Check if the update flag is set after the Update Generation, if so clear the UIF flag */
-// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
-// because the timer runs a little slower than the CPU
-// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
-	/*
-
-	 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-	 // Clear the update flag
-	 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-	 }
-	 */
-
-	//while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE))		;
-	//CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
 	clear_tim_flag();
 
 	if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
 		/* Starting Error */
 		critical_stop();
 	}
-}
 
+}
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 	if (huart == &huart2) {
 		switch (fast_mb_mode) {
@@ -348,11 +317,13 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 			break;
 		case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт кто-то передал
 			//подумаю завтра что делать в таких случаях
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n!!error end transmit mb_begin_scan!!\n");
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+					"\n!!error end transmit mb_begin_scan!!\n");
 			break;
 		case mb_next_scan: //ахринеть, таймаут к началу арбитража команды следующего сканирования ещё не кончился, а байт кто-то передал
 			//подумаю завтра что делать в таких случаях
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n!!error end transmit mb_next_scan!!\n");
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+					"\n!!error end transmit mb_next_scan!!\n");
 			break;
 		case mb_run_arbitrage://передавали Доминантное состояние (передаётся значением 0xFF)
 		case mb_next_arbitrage:	//передавали Доминантное состояние (передаётся значением 0xFF)
@@ -370,13 +341,12 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 	}
 #endif
 }
-
-
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	HAL_StatusTypeDef res;
 	if (huart == &huart2) {
-		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"%ld uart %02x buf_rec:%d ", HAL_GetTick(),
-				nmbs.msg.buf[nmbs.msg.buf_rec], nmbs.msg.buf_rec);
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "%ld uart %02x buf_rec:%d ",
+				HAL_GetTick(), nmbs.msg.buf[nmbs.msg.buf_rec],
+				nmbs.msg.buf_rec);
 		switch (fast_mb_mode) {
 		case mb_none:	//продолжаем обычный приём
 			strobe_toggle();
@@ -392,14 +362,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					// Generate an update event to reload the Prescaler
 					// and the repetition counter (only for advanced timer) value immediately
 					htim6.Instance->EGR = TIM_EGR_UG;
-					/* выносим этот блок за пределы switch
-					 // Check if the update flag is set after the Update Generation, if so clear the UIF flag
-					 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-					 // Clear the update flag
-					 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-					 MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"clear timer flag ");
-					 }
-					 выносим этот блок за пределы switch */
 					break;
 					//Начало сканирования
 					//Мастер отправляет в шину команду «Начать сканирование», которая фактически звучит: «Есть кто?».
@@ -425,30 +387,21 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					//из-за бага в TIM_Base_SetConfig это закомментировано, поэтому открываем здесь
 					htim6.Instance->EGR = TIM_EGR_UG;
 
-					/* выносим этот блок за пределы switch
-					 // Check if the update flag is set after the Update Generation, if so clear the UIF flag
-					 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
-					 // Clear the update flag
-					 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
-					 }
-					 if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
-					 // Starting Error
-					 critical_stop();
-					 }
-					 выносим этот блок за пределы switch */
-
 					if (fast_mb_mode != mb_begin_scan) {
-						MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%ld start timer mb_next_scan\n", HAL_GetTick());
+						MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+								"%ld start timer mb_next_scan\n",
+								HAL_GetTick());
 						fast_mb_mode = mb_next_scan;
 					} else {
-						MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%ld start timer\n!!YES mb_begin_scan\n",
+						MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+								"%ld start timer\n!!YES mb_begin_scan\n",
 								HAL_GetTick());
 					}
 					arbitrage_window = 0;
 					arbitrage_loss = false;
 					make_arbitrage_data(&nmbs); //сгенерировать арбитражное 32 битное значение
 					//включаем передатчик
-					SetRS485Transmit();
+					//SetRS485Transmit(); пока сделаем это только при передаче
 					strobe_toggle();
 					break;
 				default:
@@ -468,7 +421,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				//while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE));
 				//CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
 				clear_tim_flag();
-
 				if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
 					/* Starting Error */
 					critical_stop();
@@ -476,11 +428,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				//Receive next symbol
 				if (HAL_UART_Receive_IT(&huart2,
 						&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
-					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
+							"HAL_UART_Receive_IT error\n");
 					critical_stop();
 				}
 			} else { //overflow input buffer
-				MP_FMB_DEBUG_PRINT(DEBUG_INFO,"\n!!overflow input buffer!!\n");
+				MP_FMB_DEBUG_PRINT(DEBUG_INFO, "\n!!overflow input buffer!!\n");
 				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
 					// Starting Error
@@ -490,23 +443,26 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			}
 			break;
 		case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт уже приняли
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n!!mb_begin_scan error!!\n");
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!mb_begin_scan error!!\n");
 			//подумаю завтра что делать в таких случаях
 			//break;
 		case mb_next_scan://ахринеть, таймаут к началу арбитража продолжить сканирование ещё не кончился, а байт уже приняли
 			//подумаю завтра что делать в таких случаях
-			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n!!!mb_next_scan error!!\n");
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!mb_next_scan error!!\n");
 			//пока заглатываем символ и бежим дальше
 			//Receive next symbol
 			if (huart2.gState == HAL_UART_STATE_READY) {
 				res = HAL_UART_Receive_IT(&huart2,
 						&nmbs.msg.buf[nmbs.msg.buf_rec], 1);
 				if (res != HAL_OK) {
-					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
+							"HAL_UART_Receive_IT error\n");
 					critical_stop();
 				}
 			} else {
-				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld RxCpltCallback mb_next_scan HAL_UART_Receive_IT\n", huart2.gState);
+				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
+						"error state:%ld RxCpltCallback mb_next_scan HAL_UART_Receive_IT\n",
+						huart2.gState);
 			}
 			break;
 		case mb_run_arbitrage:
@@ -516,30 +472,35 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				//подумаю завтра что делать в таких случаях
 				//пока заглатываем символ и бежим дальше
 				//Receive next symbol
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n!!!arbitrage_window not start!!\n");
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+						"\n!!!arbitrage_window not start!!\n");
 				if (huart2.gState == HAL_UART_STATE_READY) {
 					res = HAL_UART_Receive_IT(&huart2,
 							&nmbs.msg.buf[nmbs.msg.buf_rec], 1);
 					if (res != HAL_OK) {
-						MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
+						MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
+								"HAL_UART_Receive_IT error\n");
 						critical_stop();
 					}
 				} else {
-					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld RxCpltCallback mb_next_arbitrage HAL_UART_Receive_IT\n", huart2.gState);
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
+							"error state:%ld RxCpltCallback mb_next_arbitrage HAL_UART_Receive_IT\n",
+							huart2.gState);
 				}
 			} else {
 				// arbitrage_window - 1 = это номер арбитражного окна, в котором приняли байт
 				if (!arbitrage_loss) {
 					if (arbitrage_word
-							& (0x8000000 >> (arbitrage_window - 1))) { //1 - рециссивное состояние — это молчание в
+							& (0x80000000 >> (arbitrage_window - 1))) { //1 - рециссивное состояние — это молчание в
 						//течение арбитражного окна, если обнаружили передачу - проиграли
-						MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"w%02d %ld \n!loss!\n ", arbitrage_window,
+						MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
+								"w%02d %ld \n!loss!\n ", arbitrage_window,
 								HAL_GetTick());
 						arbitrage_loss = true;
 					}
 				} else {
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"w%02d %ld loss ", arbitrage_window, HAL_GetTick()); //мы уже проиграли арбитраж, поэтому тихо поём о поражении
-
+					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld loss ",
+							arbitrage_window, HAL_GetTick()); //мы уже проиграли арбитраж, поэтому тихо поём о поражении
 				}
 			}
 			/* смысла нет арбитраж складывать в буфер
@@ -559,7 +520,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			//Receive next symbol
 			if (HAL_UART_Receive_IT(&huart2, &nmbs.msg.buf[nmbs.msg.buf_rec], 1)
 					!= HAL_OK) {
-				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
+				MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 				critical_stop();
 			}
 			break;
@@ -568,7 +529,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		}
 	}
 }
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM6) {
 		uint32_t Size = msg_buf_get(&nmbs);
@@ -576,7 +536,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		case mb_none:	//продолжаем обычный приём
 			//нет смысла запускать процедуру обработки модбас при пустом входном буфере
 			if (Size) { //number of received symbol
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n%ld normal timer\n", HAL_GetTick());
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld normal timer\n",
+						HAL_GetTick());
 				strobe_toggle();
 				//stop timer 3.5 word
 				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
@@ -588,8 +549,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				if (NMBS_ERROR_NONE != res_poll) {
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
 							"nmbs_server_poll error:%d size of receive:%ld\n",
-							(int8_t ) res_poll, Size);
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%s\n", nmbs_strerror(res_poll));
+							(int8_t) res_poll, Size);
+					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "%s\n",
+							nmbs_strerror(res_poll));
 					MP_DEBUG_DUMP(FM_LEVEL_DEBUG, (uint8_t* ) &nmbs,
 							(uint16_t ) Size);
 				}
@@ -597,8 +559,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					HAL_StatusTypeDef res;
 					res = HAL_UART_AbortReceive(&huart2);
 					if (res != HAL_OK) {
-						MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_AbortReceive error %d\n",
-								res);
+						MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
+								"HAL_UART_AbortReceive error %d\n", res);
 						critical_stop();
 					}
 					nano_RecieveMode();
@@ -627,12 +589,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 			if (fast_mb_mode == mb_begin_scan) {
 
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"%ld run timer win:%d\n", HAL_GetTick(),
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
+						"%ld run timer win:%d\n", HAL_GetTick(),
 						arbitrage_window);
 
 				fast_mb_mode = mb_run_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
 			} else {
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"%ld next timer win:%d\n", HAL_GetTick(),
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
+						"%ld next timer win:%d\n", HAL_GetTick(),
 						arbitrage_window);
 				fast_mb_mode = mb_next_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
 			}
@@ -666,10 +630,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				/* судя по анализу обмена никакого таймаута в этом случае нет, отправляем сразу по окончании арбитражного окна
 				 убираем реинициализацию на 3.5, отправляем сразу после окончания арбитражного окна*/
 				if (arbitrage_loss) {
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n%ld end arb win:%d\n", HAL_GetTick(),
-							arbitrage_window);
+					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld end arb win:%d\n",
+							HAL_GetTick(), arbitrage_window);
 				} else {
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n!!!WE WIN ARBITRAGE %ld end arb win:%d\n",
+					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+							"\n!!!WE WIN ARBITRAGE %ld end arb win:%d\n",
 							HAL_GetTick(), arbitrage_window);
 				}
 				arbitrage_window++;
@@ -680,7 +645,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					// Starting Error
 					critical_stop();
 				}
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"\n %ld end arb tim win:%d\n", HAL_GetTick(),
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+						"\n %ld end arb tim win:%d\n", HAL_GetTick(),
 						arbitrage_window);
 				fast_mb_mode = mb_none; //после ответа (если он будет) продолжаем обычный приём
 				if (!arbitrage_loss) { // если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
@@ -737,8 +703,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 			//Если же устройство должно передать рецессивное состояние — оно молчит в течение всего арбитражного окна и слушает шину.
 			//Если из шины за время арбитражного окна был принят байт — другое устройство передало доминантное состояние и арбитраж проигран.
-			if (arbitrage_word & (0x8000000 >> arbitrage_window)) { //1 - рециссивное состояние — это молчание в
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"w%02d %ld silent ", arbitrage_window, HAL_GetTick());
+			if (arbitrage_word & (0x80000000 >> arbitrage_window)) { //1 - рециссивное состояние — это молчание в
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld silent ",
+						arbitrage_window, HAL_GetTick());
 				//течение арбитражного окна, если обнаружили передачу - проиграли
 			} else { // Ноль - доминантным состоянием, надо передать 0xFF на шину, если ещё нет передачи
 					 //даже если передача есть, то всё равно арбитраж продолжается - продолжаем "бороться"
@@ -749,19 +716,26 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					 //0: USART is idle (no reception)
 					 //1: Reception on going
 
-				if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET) { //проверяем есть ли сейчас какая либо передача на линии
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"w%02d %ld \n!!\n!!SET!!\n!!\n", arbitrage_window,
+				//проверяем есть ли сейчас какая либо передача на линии
+//				if ((__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET)
+//						|| (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3)
+//								== GPIO_PIN_RESET)) {
+				if ((__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET)) {
+					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
+							"w%02d %ld \n!!\n!!SET!!\n!!\n", arbitrage_window,
 							HAL_GetTick());
 				} else {
 					static const uint8_t FF[1] = { 0xFF };
 					//если мы ещё не проиграли арбитраж
 					//то передаём доминантное состояние
 					if (!arbitrage_loss) {
+						//SetRS485Transmit(); //попробуем передатчик включить заранее
+						strobe_toggle();
 						write_serial(FF, 1, 0, &nmbs.platform.arg);
-						MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,"w%02d %ld FF ", arbitrage_window, HAL_GetTick());
+						MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld FF ",
+								arbitrage_window, HAL_GetTick());
 					}
 				}
-
 			}
 			arbitrage_window++; //следующее арбитражное окно
 			break;
@@ -769,26 +743,23 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			critical_stop();
 		}
 	}
-
 }
-
-
-bool fast_mb_init(){
+bool fast_mb_init() {
 	//вычисление коэффициентов таймера в разных режимах.
 	//Запускать всегда до вызова инициализации таймера
-		compute_timer();
-		fast_mb_mode = mb_none; //работаем как с обычным modbus
-		uint32_t ver_hal = HAL_GetHalVersion();
-		if (ver_hal != 0x1070800) {
-			// Check if the update flag is set after the Update Generation, if so clear the UIF flag
-			// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
-			// because the timer runs a little slower than the CPU
-			// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
-			//	 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE))
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"CHECK BUG in HAL %08lx timer_set\n",ver_hal);
-			return false;
-		}
-return true;
-
+	compute_timer();
+	fast_mb_mode = mb_none; //работаем как с обычным modbus
+	uint32_t ver_hal = HAL_GetHalVersion();
+	if (ver_hal != 0x1070800) {
+		// Check if the update flag is set after the Update Generation, if so clear the UIF flag
+		// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
+		// because the timer runs a little slower than the CPU
+		// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
+		//	 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE))
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "CHECK BUG in HAL %08lx timer_set\n",
+				ver_hal);
+		return false;
+	}
+	return true;
 }
 

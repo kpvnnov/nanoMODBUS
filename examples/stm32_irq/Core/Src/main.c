@@ -40,7 +40,6 @@
 #include "nanomodbus.h"
 #include "fast_mb.h"
 
-
 #ifdef NMBS_DEBUG
 #include <errno.h>
 #include <sys/unistd.h> // STDOUT_FILENO, STDERR_FILENO
@@ -69,7 +68,6 @@ extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 //invert the red LED
 #define RED_TOGGLE()    HAL_GPIO_TogglePin(LED1_SYS_AL_GPIO_Port, LED1_SYS_AL_Pin)
 
-
 #define ToggleRS485Transmit() HAL_GPIO_TogglePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin)
 
 // The data model of this sever will support coils addresses 0 to 100 and registers addresses from 0 to 32
@@ -94,14 +92,14 @@ uint32_t Speed = 96;
 //uint32_t Speed = 384;
 //uint32_t Speed = 576;
 //uint32_t Speed = 1152;
-uint16_t get_baudrate(){
+uint16_t get_baudrate() {
 	return Speed;
 }
 nmbs_t nmbs;
 volatile bool packet_sended = false; //в текущем цикле была передача
 //volatile bool old_arbitrage;
-volatile bool config_otladka_comport = false;
-
+//переменная отвечающая за включение отладки дергания ногой
+volatile bool config_otladka_comport = true;
 
 // A single nmbs_bitfield variable can keep 2000 coils
 nmbs_bitfield server_coils = { 0 };
@@ -112,7 +110,7 @@ volatile bool debug_uart_run = false;
 volatile uint16_t pos_print = 0;
 
 uint8_t debug_buffer[4096];
-uint16_t pos_debug = 0;
+volatile uint16_t pos_debug = 0;
 //uint16_t print_debug = 0;
 
 #endif
@@ -214,7 +212,7 @@ int32_t read_from_buf(uint8_t *buf, uint16_t count, int32_t byte_timeout_ms,
 
 int32_t write_serial(const uint8_t *buf, uint16_t count,
 		int32_t byte_timeout_ms, void *arg) {
-	SetRS485Transmit();
+
 	packet_sended = true;
 	HAL_StatusTypeDef res;
 	res = HAL_UART_AbortReceive(&huart2);
@@ -223,6 +221,7 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 		critical_stop();
 	}
 	if (huart2.gState == HAL_UART_STATE_READY) {
+		SetRS485Transmit();
 		res = HAL_UART_Transmit_IT(&huart2, buf, count);
 		if (res != HAL_OK) {
 			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Transmit_IT error %d\n", res);
@@ -233,7 +232,6 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 	}
 	return count;
 }
-
 
 nmbs_error handle_read_coils(uint16_t address, uint16_t quantity,
 		nmbs_bitfield coils_out, uint8_t unit_id, void *arg) {
@@ -506,25 +504,37 @@ int _write(int file, char *data, int len) {
 	}
 //HAL_UART_Transmit(&huart1, (uint8_t*) data, (uint16_t) len, 0xFFFF);
 //HAL_UART_Transmit_IT(&huart1, (uint8_t*) data, (uint16_t) len);
-	int my_len = 0;
+	int len_for_write = 0;
 	int total_len = len;
+
 	if ((pos_debug + len) >= sizeof(debug_buffer)) {
-		//my_len = (pos_debug + len) - sizeof(debug_buffer);
-		my_len = sizeof(debug_buffer) - pos_debug;
-		strncpy(&debug_buffer[pos_debug], data, my_len);
+		__HAL_ENTER_CRITICAL_SECTION();
+		int pos_for_write = pos_debug;
+		int len_for_write = sizeof(debug_buffer) - pos_debug;
 		pos_debug = 0;
-		len -= my_len;
+		__HAL_EXIT_CRITICAL_SECTION();
+		len -= len_for_write;
+		strncpy(&debug_buffer[pos_for_write], data, len_for_write);
+
 	}
+
 	if (len > sizeof(debug_buffer)) {
 		len = sizeof(debug_buffer);
 	}
-	strncpy((char*) &debug_buffer[pos_debug], data, len);
+
+	__HAL_ENTER_CRITICAL_SECTION();
+	int pos_for_write = pos_debug;
+	len_for_write = len;
 	pos_debug += len;
 	if (pos_debug >= sizeof(debug_buffer)) {
-
+		__HAL_EXIT_CRITICAL_SECTION();
 		critical_stop();
 		pos_debug = 0;
 	}
+	__HAL_EXIT_CRITICAL_SECTION();
+
+	strncpy((char*) &debug_buffer[pos_for_write], data, len_for_write);
+
 	if (!debug_uart_run) {
 		flush_debug();
 	}
@@ -583,12 +593,13 @@ int main(void) {
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
 
-	if (!fast_mb_init()){	while (1) {
+	if (!fast_mb_init()) {
+		while (1) {
 			RED_TOGGLE();
 			HAL_Delay(250);
 		}
 	}
-    //инициализация коэффициентов идёт в процедуре fast_mb_init
+	//инициализация коэффициентов идёт в процедуре fast_mb_init
 	//вычисление коэффициентов таймера в разных режимах.
 	//Запускать всегда до вызова инициализации таймера
 	MX_TIM6_Init(0);

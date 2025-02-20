@@ -22,8 +22,8 @@
 
 /* USER CODE BEGIN 0 */
 extern uint32_t Speed;
-extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period, Arbitrage_Periodx60, Window_Periodx60,
-		Normal_Prescaler, Normal_Period;
+extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
+		Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler, Normal_Period;
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim6;

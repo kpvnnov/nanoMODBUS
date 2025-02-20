@@ -55,7 +55,6 @@ extern "C" {
 //не отвечать на старые команды протокола
 #define ASK_OLD_FASTMODBUS (1)
 
-
 #define DEBUG_ERROR 0
 #define DEBUG_WARN  1
 #define DEBUG_INFO  2
@@ -69,7 +68,7 @@ extern "C" {
 
 #include <stdbool.h>
 extern volatile bool config_otladka_comport;
-inline bool otladka_comport(){
+inline bool otladka_comport() {
 	return config_otladka_comport;
 }
 
@@ -106,7 +105,6 @@ inline bool otladka_comport(){
 //управление включением передачи
 #define SetRS485Receive() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_RESET)
 #define SetRS485Transmit() HAL_GPIO_WritePin(USART2_RTS_GPIO_Port, USART2_RTS_Pin, GPIO_PIN_SET)
-
 
 #define USARTx                           USART1
 #define USARTx_CLK_ENABLE()              __HAL_RCC_USART1_CLK_ENABLE();
@@ -147,7 +145,6 @@ inline bool otladka_comport(){
 #endif
 
 #ifdef NMBS_DEBUG
-
 
 #ifdef FASTMODBUS_DEBUG
 #define MP_FMB_DEBUG_PRINT MP_DEBUG_PRINT
