@@ -82,13 +82,20 @@ extern "C" {
 
 #include <stdbool.h>
 extern volatile bool config_otladka_comport;
+extern volatile bool config_otladka_strobe;
 inline bool otladka_comport() {
 	return config_otladka_comport;
+}
+inline bool otladka_strobe() {
+	return config_otladka_strobe;
 }
 
 //включение отладки программным способом
 //#define get_debug_comport() (config.otladka.comport)
 #define get_debug_comport() (otladka_comport())
+//отдельный вывод используемый для вывода отладочных уровней сигнала
+#define get_debug_strobe() (otladka_strobe())
+
 
 #define BOOLEAN2INT (0x0001) //значение для integer значений, которые должны быть единицей
 //#define BOOLEAN2INT (0xFFFF)

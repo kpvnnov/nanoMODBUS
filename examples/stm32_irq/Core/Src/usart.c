@@ -25,8 +25,8 @@
 extern uint32_t Speed;
 /* USER CODE END 0 */
 
-UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart2;
+UART_HandleTypeDef UartHandle;
+UART_HandleTypeDef modbusUart;
 
 /* USART1 init function */
 
@@ -39,17 +39,17 @@ void MX_USART1_UART_Init(void) {
 	/* USER CODE BEGIN USART1_Init 1 */
 
 	/* USER CODE END USART1_Init 1 */
-	huart1.Instance = USART1;
-	huart1.Init.BaudRate = 115200;
-	huart1.Init.WordLength = UART_WORDLENGTH_8B;
-	huart1.Init.StopBits = UART_STOPBITS_1;
-	huart1.Init.Parity = UART_PARITY_NONE;
-	huart1.Init.Mode = UART_MODE_TX_RX;
-	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-	huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-	huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-	if (HAL_UART_Init(&huart1) != HAL_OK) {
+	UartHandle.Instance = USART1;
+	UartHandle.Init.BaudRate = 115200;
+	UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
+	UartHandle.Init.StopBits = UART_STOPBITS_1;
+	UartHandle.Init.Parity = UART_PARITY_NONE;
+	UartHandle.Init.Mode = UART_MODE_TX_RX;
+	UartHandle.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
+	UartHandle.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+	UartHandle.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+	if (HAL_UART_Init(&UartHandle) != HAL_OK) {
 		Error_Handler();
 	}
 	/* USER CODE BEGIN USART1_Init 2 */
@@ -59,7 +59,7 @@ void MX_USART1_UART_Init(void) {
 }
 /* USART2 init function */
 
-void MX_USART2_UART_Init(void) {
+void MX_ModbusUart_Init(void) {
 
 	/* USER CODE BEGIN USART2_Init 0 */
 
@@ -68,21 +68,21 @@ void MX_USART2_UART_Init(void) {
 	/* USER CODE BEGIN USART2_Init 1 */
 
 	/* USER CODE END USART2_Init 1 */
-	huart2.Instance = USART2;
-	huart2.Init.BaudRate = get_baudrate() * 100UL;
-	huart2.Init.WordLength = UART_WORDLENGTH_8B;
-	huart2.Init.StopBits = UART_STOPBITS_2;
-	huart2.Init.Parity = UART_PARITY_NONE;
-	huart2.Init.Mode = UART_MODE_TX_RX;
-	huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-	huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-	huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_RXOVERRUNDISABLE_INIT
+	modbusUart.Instance = USART2;
+	modbusUart.Init.BaudRate = get_baudrate() * 100UL;
+	modbusUart.Init.WordLength = UART_WORDLENGTH_8B;
+	modbusUart.Init.StopBits = UART_STOPBITS_2;
+	modbusUart.Init.Parity = UART_PARITY_NONE;
+	modbusUart.Init.Mode = UART_MODE_TX_RX;
+	modbusUart.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	modbusUart.Init.OverSampling = UART_OVERSAMPLING_16;
+	modbusUart.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+	modbusUart.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_RXOVERRUNDISABLE_INIT
 			| UART_ADVFEATURE_DMADISABLEONERROR_INIT;
-	huart2.AdvancedInit.OverrunDisable = UART_ADVFEATURE_OVERRUN_DISABLE;
-	huart2.AdvancedInit.DMADisableonRxError =
+	modbusUart.AdvancedInit.OverrunDisable = UART_ADVFEATURE_OVERRUN_DISABLE;
+	modbusUart.AdvancedInit.DMADisableonRxError =
 	UART_ADVFEATURE_DMA_DISABLEONRXERROR;
-	if (HAL_UART_Init(&huart2) != HAL_OK) {
+	if (HAL_UART_Init(&modbusUart) != HAL_OK) {
 		Error_Handler();
 	}
 	/* USER CODE BEGIN USART2_Init 2 */

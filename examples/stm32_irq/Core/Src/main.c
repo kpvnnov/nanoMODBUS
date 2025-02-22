@@ -99,7 +99,13 @@ nmbs_t nmbs;
 volatile bool packet_sended = false; //в текущем цикле была передача
 //volatile bool old_arbitrage;
 //переменная отвечающая за включение отладки дергания ногой
+volatile bool config_otladka_strobe = true;
+
 volatile bool config_otladka_comport = true;
+
+//смену скорости rs485 лучше сделать по окончании передачи пакета, когда поднимается этот флаг
+volatile uint8_t must_reload_rs485 = 0;
+
 
 // A single nmbs_bitfield variable can keep 2000 coils
 nmbs_bitfield server_coils = { 0 };
@@ -124,6 +130,13 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if (htim == &TimerFastMB) {
+		HAL_Timer_FastModbus(htim);
+	}
+}
+
 
 #ifdef NMBS_DEBUG
 
@@ -156,7 +169,7 @@ void flush_debug() {
 				critical_stop();
 			}
 			debug_uart_run = true;
-			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_for_send],
+			HAL_UART_Transmit_IT(&UartHandle, &debug_buffer[pos_for_send],
 					len_for_send);
 
 		} else {    	//отправим до конца массива и сдвигаем указатель на ноль
@@ -174,7 +187,7 @@ void flush_debug() {
 				critical_stop();
 			}
 			debug_uart_run = true;
-			HAL_UART_Transmit_IT(&huart1, &debug_buffer[pos_for_send],
+			HAL_UART_Transmit_IT(&UartHandle, &debug_buffer[pos_for_send],
 					len_for_send);
 
 		}
@@ -215,20 +228,20 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 
 	packet_sended = true;
 	HAL_StatusTypeDef res;
-	res = HAL_UART_AbortReceive(&huart2);
+	res = HAL_UART_AbortReceive(&modbusUart);
 	if (res != HAL_OK) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_AbortReceive error %d\n", res);
 		critical_stop();
 	}
-	if (huart2.gState == HAL_UART_STATE_READY) {
+	if (modbusUart.gState == HAL_UART_STATE_READY) {
 		SetRS485Transmit();
-		res = HAL_UART_Transmit_IT(&huart2, buf, count);
+		res = HAL_UART_Transmit_IT(&modbusUart, buf, count);
 		if (res != HAL_OK) {
 			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Transmit_IT error %d\n", res);
 			critical_stop();
 		}
 	} else {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld write_serial HAL_UART_Transmit_IT \n", huart2.gState);
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld write_serial HAL_UART_Transmit_IT \n", modbusUart.gState);
 	}
 	return count;
 }
@@ -588,7 +601,7 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
-	MX_USART2_UART_Init();
+	MX_ModbusUart_Init();
 
 	MX_USART1_UART_Init();
 	/* USER CODE BEGIN 2 */
@@ -602,7 +615,7 @@ int main(void) {
 	//инициализация коэффициентов идёт в процедуре fast_mb_init
 	//вычисление коэффициентов таймера в разных режимах.
 	//Запускать всегда до вызова инициализации таймера
-	MX_TIM6_Init(0);
+	MX_TIM_FastMB_Init(0);
 
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", Speed, RTU_SERVER_ADDRESS);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"FastModbus_Prescaler:%ld\n", FastModbus_Prescaler);

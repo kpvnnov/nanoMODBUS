@@ -69,6 +69,7 @@ bool arbitrage_loss; //признак проигранного арбитраж�
 
 extern nmbs_t nmbs;
 extern volatile uint8_t packet_sended;
+extern volatile uint8_t must_reload_rs485;
 
 inline void clear_tim_flag() {
 	volatile uint8_t counter = 100;
@@ -204,7 +205,7 @@ void compute_timer() {
 	k = 20;
 	y = SystemCoreClock * k / (uint32_t) (baudrate * x);
 	Window_Periodx60 = y - 1;
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", Speed, RTU_SERVER_ADDRESS);
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", baudrate, get_modbusaddress());
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"FastModbus_Prescaler:%ld\n", FastModbus_Prescaler);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"    Arbitrage_Period:%5ld     Window_Period:%5ld\n",
 			Arbitrage_Period, Window_Period);
@@ -287,7 +288,7 @@ void fastmodbus_RecieveMode(void) {
 	SetRS485Receive();
 
 //Receive of data in IRQ Mode
-	if (HAL_UART_Receive_IT(&huart2, nmbs.msg.buf, 1) != HAL_OK) {
+	if (HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1) != HAL_OK) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 		critical_stop();
 	}
@@ -302,8 +303,8 @@ void nano_RecieveMode(void) {
 	packet_sended = false;
 	if (must_reload_rs485) { //надо перезапустить RS-485 с новыми коммуникационными параметрами
 		must_reload_rs485 = 0;
-	     HAL_UART_DeInit(&modbusUart);
-	     MX_ModbusUart_UART_Init();
+		HAL_UART_DeInit(&modbusUart);
+		MX_ModbusUart_Init();
 	}
 	msg_rec_reset(&nmbs);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecieveMode buf_rec:%d\n",
@@ -393,7 +394,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
 						critical_stop();
 					}
-					MX_TIM6_Init(nmbs.msg.old_arbitrage ? 3 : 1);//инициализируем таймер на ожидание начала арбитража
+					MX_TIM_FastMB_Init(nmbs.msg.old_arbitrage ? 3 : 1);//инициализируем таймер на ожидание начала арбитража
 					// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 					// поэтому пока комментируем здесь эту операцию reload
 					// Generate an update event to reload the Prescaler
@@ -518,8 +519,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				}
 			}
 			//Receive next symbol
-			if (HAL_UART_Receive_IT(&huart2, &nmbs.msg.buf[nmbs.msg.buf_rec], 1)
-					!= HAL_OK) {
+			if (HAL_UART_Receive_IT(&modbusUart,
+					&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 				critical_stop();
 			}
@@ -529,221 +530,220 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 		}
 	}
 }
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	if (htim->Instance == TIM6) {
-		uint32_t Size = msg_buf_get(&nmbs);
-		switch (fast_mb_mode) {
-		case mb_none:	//продолжаем обычный приём
-			//нет смысла запускать процедуру обработки модбас при пустом входном буфере
-			if (Size) { //number of received symbol
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld normal timer\n",
-						HAL_GetTick());
-				strobe_toggle();
-				//stop timer 3.5 word
-				if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
-					// Starting Error
-					critical_stop();
-				}
-				packet_sended = false; //надо знать была ли передача данных
-				nmbs_error res_poll = nmbs_server_poll(&nmbs);
-				if (NMBS_ERROR_NONE != res_poll) {
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
-							"nmbs_server_poll error:%d size of receive:%ld\n",
-							(int8_t) res_poll, Size);
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "%s\n",
-							nmbs_strerror(res_poll));
-					MP_DEBUG_DUMP(FM_LEVEL_DEBUG, (uint8_t* ) &nmbs,
-							(uint16_t ) Size);
-				}
-				if (!packet_sended) {
-					HAL_StatusTypeDef res;
-					res = HAL_UART_AbortReceive(&modbusUart);
-					if (res != HAL_OK) {
-						MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
-								"HAL_UART_AbortReceive error %d\n", res);
-						critical_stop();
-					}
-					nano_RecieveMode();
-				}
-			}
-			break;
-		case mb_begin_scan: //сработал таймер арбитража команды начала сканирования
-		case mb_next_scan: //сработал таймер арбитража команды продолжения сканирования
+
+void HAL_Timer_FastModbus(TIM_HandleTypeDef *htim) {
+	uint32_t Size = msg_buf_get(&nmbs);
+	switch (fast_mb_mode) {
+	case mb_none:	//продолжаем обычный приём
+		//нет смысла запускать процедуру обработки модбас при пустом входном буфере
+		if (Size) { //number of received symbol
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld normal timer\n",
+					HAL_GetTick());
 			strobe_toggle();
-			//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
-			//stop timer arbitrage interval
+			//stop timer 3.5 word
 			if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
 				// Starting Error
 				critical_stop();
 			}
-			if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
-				critical_stop();
+			packet_sended = false; //надо знать была ли передача данных
+			nmbs_error res_poll = nmbs_server_poll(&nmbs);
+			if (NMBS_ERROR_NONE != res_poll) {
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+						"nmbs_server_poll error:%d size of receive:%ld\n",
+						(int8_t) res_poll, Size);
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "%s\n",
+						nmbs_strerror(res_poll));
+				MP_DEBUG_DUMP(FM_LEVEL_DEBUG, (uint8_t* ) &nmbs,
+						(uint16_t ) Size);
 			}
-			MX_TIM6_Init(nmbs.msg.old_arbitrage ? 4 : 2);//инициализируем таймер на арбитражное окно
-			// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
-			// поэтому пока комментируем здесь эту операцию reload
-			// Generate an update event to reload the Prescaler
-			// and the repetition counter (only for advanced timer) value immediately
-			//из-за бага в TIM_Base_SetConfig это закомментировано, поэтому открываем здесь
-			TimerFastMB.Instance->EGR = TIM_EGR_UG;
-
-			if (fast_mb_mode == mb_begin_scan) {
-
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
-						"%ld run timer win:%d\n", HAL_GetTick(),
-						arbitrage_window);
-
-				fast_mb_mode = mb_run_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
-			} else {
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
-						"%ld next timer win:%d\n", HAL_GetTick(),
-						arbitrage_window);
-				fast_mb_mode = mb_next_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
-			}
-
-			// Check if the update flag is set after the Update Generation, if so clear the UIF flag
-			// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
-			// because the timer runs a little slower than the CPU
-			// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
-			/*
-			 if (HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE)) {
-			 // Clear the update flag
-			 CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
-			 }
-			 */
-
-			//while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE));
-			//CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
-			clear_tim_flag();
-
-			if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
-				/* Starting Error */
-				critical_stop();
-			}
-
-			//break; он здесь специально не нужен, чтобы обработать первое арбитражное окно
-			//в следующем case сразу после окончания таймера начала арбитража
-		case mb_run_arbitrage:
-		case mb_next_arbitrage:
-			strobe_toggle();
-			if (arbitrage_window == 32) { //закончился арбитраж
-				/* судя по анализу обмена никакого таймаута в этом случае нет, отправляем сразу по окончании арбитражного окна
-				 убираем реинициализацию на 3.5, отправляем сразу после окончания арбитражного окна*/
-				if (arbitrage_loss) {
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld end arb win:%d\n",
-							HAL_GetTick(), arbitrage_window);
-				} else {
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
-							"\n!!!WE WIN ARBITRAGE %ld end arb win:%d\n",
-							HAL_GetTick(), arbitrage_window);
-				}
-				arbitrage_window++;
-				break;
-			} else if (arbitrage_window >= 33) { //таймер 3.5 секунды после того как закончился арбитраж сработал
-				//stop timer 3.5 word
-				if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
-					// Starting Error
+			if (!packet_sended) {
+				HAL_StatusTypeDef res;
+				res = HAL_UART_AbortReceive(&modbusUart);
+				if (res != HAL_OK) {
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
+							"HAL_UART_AbortReceive error %d\n", res);
 					critical_stop();
 				}
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
-						"\n %ld end arb tim win:%d\n", HAL_GetTick(),
-						arbitrage_window);
-				fast_mb_mode = mb_none; //после ответа (если он будет) продолжаем обычный приём
-				if (!arbitrage_loss) { // если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
-					if (i_am_not_scaned) { //если мы ещё не отсканированы, то отвечаем такой командой
-						//(1 байт) 0xFD широковещательный адрес
-						//(1 байт) 0x46 команда работы с расширенными функциями
-						//(1 байт) 0x03 субкоманда - признак ответа на сканирование
-						//(4 байта) серийный номер устройства (big endian)
-						//(1 байт) modbus адрес устройства
-						//(2 байта) контрольная сумма
-						i_am_not_scaned = false;	//устройство отсканировано
-						answer_scan(&nmbs);
-					} else { //если мы отсканированы и выиграли арбитраж (скорее всего отвечаем на команду продолжения сканирования)
-						// все отсканированные устройства отправляют одно и то же сообщение «Конец сканирования»
-						//(1 байт) 0xFD широковещательный адрес
-						//(1 байт) 0x46 команда работы с расширенными функциями
-						//(1 байт) 0x04 — субкоманда завершения сканирования;
-						//(2 байта) xD3 0x93 — контрольная сумма.
-						end_scan(&nmbs);
-					}
-				} else {
-					if (HAL_UART_AbortReceive(&modbusUart) != HAL_OK) {
-						critical_stop();
-					}
-					nano_RecieveMode();
-				}
-				break;
+				nano_RecieveMode();
 			}
-
-			//Во время арбитража устройство-слейв передаёт по одному биту друг за другом арбитражное слово,
-			//которое состоит из приоритета и уникального идентификатора.
-			//
-			//Приоритет сообщения — это 4 бита: 0 (0b0000) — наивысший, 15 (0b1111) — низший
-			//
-			//(28-битное число) младшие 28 бит уникального серийного номера
-			//
-			//Опрос событий — modbus-адрес (8-битное число). Устройства на шине уже настроены, коллизии адресов отсутствуют,
-			//нет смысла тратить время на арбитраж по серийным номерам.
-			//
-			//В итоге арбитражное слово имеет длину 12 бит (4+8) при событиях или 32 бита (4+28) при сканировании
-
-			//Ноль передаётся доминантным состоянием, а единица рецессивным — это значит, что арбитраж всегда выигрывают устройства,
-			//у которых значение арбитражного слова меньше.
-			//Так как 4 бита приоритета идут в начале, то более приоритетные сообщения выигрывают.
-			//
-			//Рецессивное состояние — это молчание в течение арбитражного окна
-			//Доминантное состояние передаётся значением 0xFF
-
-			//собственно принцип такой:
-			//Если устройство должно передавать доминантное состояние, то по началу арбитражного окна оно отправляет в шину 0xFF.
-			//Если на шине уже идет передача — устройство молчит, чтобы не передавать посылку, которая рассинхронизировалась.
-			//В этом арбитражном окне такое устройство проиграть не может. Чужая передача обнаруживается с помощью флага BUS BUSY,
-			//который есть в аппаратном блоке USART и выставляется, если на шине обнаружен чужой стартовый бит.
-
-			//Если же устройство должно передать рецессивное состояние — оно молчит в течение всего арбитражного окна и слушает шину.
-			//Если из шины за время арбитражного окна был принят байт — другое устройство передало доминантное состояние и арбитраж проигран.
-			if (arbitrage_word & (0x80000000 >> arbitrage_window)) { //1 - рециссивное состояние — это молчание в
-				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld silent ",
-						arbitrage_window, HAL_GetTick());
-				//течение арбитражного окна, если обнаружили передачу - проиграли
-			} else { // Ноль - доминантным состоянием, надо передать 0xFF на шину, если ещё нет передачи
-					 //даже если передача есть, то всё равно арбитраж продолжается - продолжаем "бороться"
-					 //Bit 16 BUSY: Busy flag
-					 //This bit is set and reset by hardware. It is active when a communication is ongoing on the
-					 //RX line (successful start bit detected). It is reset at the end of the reception (successful or
-					 //not).
-					 //0: USART is idle (no reception)
-					 //1: Reception on going
-
-				//проверяем есть ли сейчас какая либо передача на линии
-				if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)
-						|| (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3)
-								== GPIO_PIN_RESET)) {
-//				if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)) {
-					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
-							"w%02d %ld \n!!\n!!SET!!\n!!\n", arbitrage_window,
-							HAL_GetTick());
-				} else {
-					static const uint8_t FF[1] = { 0xFF };
-					//если мы ещё не проиграли арбитраж
-					//то передаём доминантное состояние
-					if (!arbitrage_loss) {
-						//SetRS485Transmit(); //попробуем передатчик включить заранее
-						strobe_toggle();
-						write_serial(FF, 1, 0, &nmbs.platform.arg);
-						MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld FF ",
-								arbitrage_window, HAL_GetTick());
-					}
-				}
-			}
-			arbitrage_window++; //следующее арбитражное окно
-			break;
-		default:
+		}
+		break;
+	case mb_begin_scan: //сработал таймер арбитража команды начала сканирования
+	case mb_next_scan: //сработал таймер арбитража команды продолжения сканирования
+		strobe_toggle();
+		//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
+		//stop timer arbitrage interval
+		if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
+			// Starting Error
 			critical_stop();
 		}
+		if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
+			critical_stop();
+		}
+		MX_TIM_FastMB_Init(nmbs.msg.old_arbitrage ? 4 : 2);//инициализируем таймер на арбитражное окно
+		// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
+		// поэтому пока комментируем здесь эту операцию reload
+		// Generate an update event to reload the Prescaler
+		// and the repetition counter (only for advanced timer) value immediately
+		//из-за бага в TIM_Base_SetConfig это закомментировано, поэтому открываем здесь
+		TimerFastMB.Instance->EGR = TIM_EGR_UG;
+
+		if (fast_mb_mode == mb_begin_scan) {
+
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
+					"%ld run timer win:%d\n", HAL_GetTick(),
+					arbitrage_window);
+
+			fast_mb_mode = mb_run_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
+		} else {
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
+					"%ld next timer win:%d\n", HAL_GetTick(),
+					arbitrage_window);
+			fast_mb_mode = mb_next_arbitrage; //в следующее прерывание сразу выйдем на второй арбитражный switch
+		}
+
+		// Check if the update flag is set after the Update Generation, if so clear the UIF flag
+		// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
+		// because the timer runs a little slower than the CPU
+		// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
+		/*
+		 if (HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE)) {
+		 // Clear the update flag
+		 CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
+		 }
+		 */
+
+		//while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE));
+		//CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
+		clear_tim_flag();
+
+		if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
+			/* Starting Error */
+			critical_stop();
+		}
+
+		//break; он здесь специально не нужен, чтобы обработать первое арбитражное окно
+		//в следующем case сразу после окончания таймера начала арбитража
+	case mb_run_arbitrage:
+	case mb_next_arbitrage:
+		strobe_toggle();
+		if (arbitrage_window == 32) { //закончился арбитраж
+			/* судя по анализу обмена никакого таймаута в этом случае нет, отправляем сразу по окончании арбитражного окна
+			 убираем реинициализацию на 3.5, отправляем сразу после окончания арбитражного окна*/
+			if (arbitrage_loss) {
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld end arb win:%d\n",
+						HAL_GetTick(), arbitrage_window);
+			} else {
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+						"\n!!!WE WIN ARBITRAGE %ld end arb win:%d\n",
+						HAL_GetTick(), arbitrage_window);
+			}
+			arbitrage_window++;
+			break;
+		} else if (arbitrage_window >= 33) { //таймер 3.5 секунды после того как закончился арбитраж сработал
+			//stop timer 3.5 word
+			if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
+				// Starting Error
+				critical_stop();
+			}
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+					"\n %ld end arb tim win:%d\n", HAL_GetTick(),
+					arbitrage_window);
+			fast_mb_mode = mb_none; //после ответа (если он будет) продолжаем обычный приём
+			if (!arbitrage_loss) { // если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
+				if (i_am_not_scaned) { //если мы ещё не отсканированы, то отвечаем такой командой
+					//(1 байт) 0xFD широковещательный адрес
+					//(1 байт) 0x46 команда работы с расширенными функциями
+					//(1 байт) 0x03 субкоманда - признак ответа на сканирование
+					//(4 байта) серийный номер устройства (big endian)
+					//(1 байт) modbus адрес устройства
+					//(2 байта) контрольная сумма
+					i_am_not_scaned = false;	//устройство отсканировано
+					answer_scan(&nmbs);
+				} else { //если мы отсканированы и выиграли арбитраж (скорее всего отвечаем на команду продолжения сканирования)
+					// все отсканированные устройства отправляют одно и то же сообщение «Конец сканирования»
+					//(1 байт) 0xFD широковещательный адрес
+					//(1 байт) 0x46 команда работы с расширенными функциями
+					//(1 байт) 0x04 — субкоманда завершения сканирования;
+					//(2 байта) xD3 0x93 — контрольная сумма.
+					end_scan(&nmbs);
+				}
+			} else {
+				if (HAL_UART_AbortReceive(&modbusUart) != HAL_OK) {
+					critical_stop();
+				}
+				nano_RecieveMode();
+			}
+			break;
+		}
+
+		//Во время арбитража устройство-слейв передаёт по одному биту друг за другом арбитражное слово,
+		//которое состоит из приоритета и уникального идентификатора.
+		//
+		//Приоритет сообщения — это 4 бита: 0 (0b0000) — наивысший, 15 (0b1111) — низший
+		//
+		//(28-битное число) младшие 28 бит уникального серийного номера
+		//
+		//Опрос событий — modbus-адрес (8-битное число). Устройства на шине уже настроены, коллизии адресов отсутствуют,
+		//нет смысла тратить время на арбитраж по серийным номерам.
+		//
+		//В итоге арбитражное слово имеет длину 12 бит (4+8) при событиях или 32 бита (4+28) при сканировании
+
+		//Ноль передаётся доминантным состоянием, а единица рецессивным — это значит, что арбитраж всегда выигрывают устройства,
+		//у которых значение арбитражного слова меньше.
+		//Так как 4 бита приоритета идут в начале, то более приоритетные сообщения выигрывают.
+		//
+		//Рецессивное состояние — это молчание в течение арбитражного окна
+		//Доминантное состояние передаётся значением 0xFF
+
+		//собственно принцип такой:
+		//Если устройство должно передавать доминантное состояние, то по началу арбитражного окна оно отправляет в шину 0xFF.
+		//Если на шине уже идет передача — устройство молчит, чтобы не передавать посылку, которая рассинхронизировалась.
+		//В этом арбитражном окне такое устройство проиграть не может. Чужая передача обнаруживается с помощью флага BUS BUSY,
+		//который есть в аппаратном блоке USART и выставляется, если на шине обнаружен чужой стартовый бит.
+
+		//Если же устройство должно передать рецессивное состояние — оно молчит в течение всего арбитражного окна и слушает шину.
+		//Если из шины за время арбитражного окна был принят байт — другое устройство передало доминантное состояние и арбитраж проигран.
+		if (arbitrage_word & (0x80000000 >> arbitrage_window)) { //1 - рециссивное состояние — это молчание в
+			MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld silent ",
+					arbitrage_window, HAL_GetTick());
+			//течение арбитражного окна, если обнаружили передачу - проиграли
+		} else { // Ноль - доминантным состоянием, надо передать 0xFF на шину, если ещё нет передачи
+				 //даже если передача есть, то всё равно арбитраж продолжается - продолжаем "бороться"
+				 //Bit 16 BUSY: Busy flag
+				 //This bit is set and reset by hardware. It is active when a communication is ongoing on the
+				 //RX line (successful start bit detected). It is reset at the end of the reception (successful or
+				 //not).
+				 //0: USART is idle (no reception)
+				 //1: Reception on going
+
+			//проверяем есть ли сейчас какая либо передача на линии
+			if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)
+					|| (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3) == GPIO_PIN_RESET)) {
+//				if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)) {
+				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
+						"w%02d %ld \n!!\n!!SET!!\n!!\n", arbitrage_window,
+						HAL_GetTick());
+			} else {
+				static const uint8_t FF[1] = { 0xFF };
+				//если мы ещё не проиграли арбитраж
+				//то передаём доминантное состояние
+				if (!arbitrage_loss) {
+					//SetRS485Transmit(); //попробуем передатчик включить заранее
+					strobe_toggle();
+					write_serial(FF, 1, 0, &nmbs.platform.arg);
+					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld FF ",
+							arbitrage_window, HAL_GetTick());
+				}
+			}
+		}
+		arbitrage_window++; //следующее арбитражное окно
+		break;
+	default:
+		critical_stop();
 	}
 }
+
 bool fast_mb_init() {
 	//вычисление коэффициентов таймера в разных режимах.
 	//Запускать всегда до вызова инициализации таймера

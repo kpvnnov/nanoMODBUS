@@ -26,10 +26,10 @@ extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 		Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler, Normal_Period;
 /* USER CODE END 0 */
 
-TIM_HandleTypeDef htim6;
+TIM_HandleTypeDef TimerFastMB;
 
 /* TIM6 init function */
-void MX_TIM6_Init(uint16_t timer_mode) {
+void MX_TIM_FastMB_Init(uint16_t timer_mode) {
 
 	/* USER CODE BEGIN TIM6_Init 0 */
 
@@ -83,41 +83,41 @@ void MX_TIM6_Init(uint16_t timer_mode) {
 	switch (timer_mode) {
 	case 0:
 		//normal 3.5 mode timer
-		htim6.Init.Prescaler = Normal_Prescaler;
-		htim6.Init.Period = Normal_Period;
+		TimerFastMB.Init.Prescaler = Normal_Prescaler;
+		TimerFastMB.Init.Period = Normal_Period;
 
 		break;
 	case 1:
 		// begin arbitrage max(3 symbols, (12 bits + 800us)) для новой 0x46
-		htim6.Init.Prescaler = FastModbus_Prescaler;
-		htim6.Init.Period = Arbitrage_Period;
+		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
+		TimerFastMB.Init.Period = Arbitrage_Period;
 
 		break;
 	case 2:
 		// arbitrage windows для новой 0x46
-		htim6.Init.Prescaler = FastModbus_Prescaler;
-		htim6.Init.Period = Window_Period;
+		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
+		TimerFastMB.Init.Period = Window_Period;
 		break;
 	case 3:
 		// begin arbitrage max(3 symbols, (12 bits + 800us)) для старой 0x60
-		htim6.Init.Prescaler = FastModbus_Prescaler;
-		htim6.Init.Period = Arbitrage_Periodx60;
+		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
+		TimerFastMB.Init.Period = Arbitrage_Periodx60;
 
 		break;
 	case 4:
 		// arbitrage windows для старой 0x60
-		htim6.Init.Prescaler = FastModbus_Prescaler;
-		htim6.Init.Period = Window_Periodx60;
+		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
+		TimerFastMB.Init.Period = Window_Periodx60;
 		break;
 	default:
 		Error_Handler();
 	}
 
 	/* USER CODE END TIM6_Init 1 */
-	htim6.Instance = TIM6;
-	htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-	htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-	if (HAL_TIM_Base_Init(&htim6) != HAL_OK) {
+	TimerFastMB.Instance = TIM6;
+	TimerFastMB.Init.CounterMode = TIM_COUNTERMODE_UP;
+	TimerFastMB.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+	if (HAL_TIM_Base_Init(&TimerFastMB) != HAL_OK) {
 		Error_Handler();
 	}
 	/* USER CODE BEGIN TIM6_Init 2 */

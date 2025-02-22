@@ -32,13 +32,13 @@ extern "C" {
 
 /* USER CODE END Includes */
 
-extern TIM_HandleTypeDef htim6;
+extern TIM_HandleTypeDef TimerFastMB;
 
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
 
-void MX_TIM6_Init(uint16_t);
+void MX_TIM_FastMB_Init(uint16_t);
 
 /* USER CODE BEGIN Prototypes */
 

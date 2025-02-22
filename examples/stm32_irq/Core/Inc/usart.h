@@ -32,9 +32,9 @@ extern "C" {
 
 /* USER CODE END Includes */
 
-extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef UartHandle;
 
-extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef modbusUart;
 
 /* USER CODE BEGIN Private defines */
 

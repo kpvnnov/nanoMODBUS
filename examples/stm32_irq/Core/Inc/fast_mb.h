@@ -55,6 +55,7 @@ typedef enum {
 
 } modbus_mode;
 
+bool fast_mb_init();
 void nano_RecieveMode(void);
 void fastmodbus_RecieveMode(void);
 
