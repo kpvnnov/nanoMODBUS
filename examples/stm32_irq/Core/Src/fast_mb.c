@@ -40,7 +40,7 @@
 #ifdef NMBS_DEBUG
 
 inline void strobe_toggle() {
-	if (get_debug_comport()) {
+	if (get_debug_strobe()) {
 		HAL_GPIO_TogglePin(STROBE_GPIO_Port, STROBE_Pin);
 		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%ld strobe ",HAL_GetTick());
 	}
@@ -72,7 +72,7 @@ extern volatile uint8_t packet_sended;
 
 inline void clear_tim_flag() {
 	volatile uint8_t counter = 100;
-	while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE) && counter--) {
+	while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE) && counter--) {
 		if (counter == 0) {
 			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!!\n ");
 			critical_stop();
@@ -81,7 +81,7 @@ inline void clear_tim_flag() {
 	if (counter != 100)
 		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "\n!!!clear_tim_flag %d ",
 				counter);
-	CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+	CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 }
 //чтобы не терять время на математические операции коэффициенты делителя рассчитать заранее
 /* вычисляем две переменных
@@ -288,28 +288,33 @@ void nano_RecieveMode(void) {
 	strobe_toggle();
 	/* Generate an update event to reload the Prescaler
 	 and the repetition counter (only for advanced timer) value immediately */
-	htim6.Instance->EGR = TIM_EGR_UG;
+	TimerFastMB.Instance->EGR = TIM_EGR_UG;
 	SetRS485Receive();
 	packet_sended = false;
+    if (must_reload_rs485) { //надо перезапустить RS-485 с новыми коммуникационными параметрами
+	     must_reload_rs485 = 0;
+	     HAL_UART_DeInit(&modbusUart);
+	     MX_ModbusUart_UART_Init();
+	}
 	msg_rec_reset(&nmbs);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecieveMode buf_rec:%d\n",
 			HAL_GetTick(), nmbs.msg.buf_rec);
 //Receive of data in IRQ Mode
 
-	if (HAL_UART_Receive_IT(&huart2, nmbs.msg.buf, 1) != HAL_OK) {
+	if (HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1) != HAL_OK) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 		critical_stop();
 	}
 	clear_tim_flag();
 
-	if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+	if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
 		/* Starting Error */
 		critical_stop();
 	}
 
 }
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
-	if (huart == &huart2) {
+	if (huart == &modbusUart) {
 		switch (fast_mb_mode) {
 		case mb_none:	//продолжаем обычный приём
 			//after end of transmit go in receive mode
@@ -343,7 +348,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 }
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	HAL_StatusTypeDef res;
-	if (huart == &huart2) {
+	if (huart == &modbusUart) {
 		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "%ld uart %02x buf_rec:%d ",
 				HAL_GetTick(), nmbs.msg.buf[nmbs.msg.buf_rec],
 				nmbs.msg.buf_rec);
@@ -355,13 +360,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				case fast_mb_none: //продолжаем приём данных как обычно
 					//restart 3.5 timer
 					//по нормальному надо выключать таймер, если через HAL, то он стопается и запрещаются прерывания таймера
-					if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+					if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
 						// Starting Error
 						critical_stop();
 					}
 					// Generate an update event to reload the Prescaler
 					// and the repetition counter (only for advanced timer) value immediately
-					htim6.Instance->EGR = TIM_EGR_UG;
+					TimerFastMB.Instance->EGR = TIM_EGR_UG;
 					break;
 					//Начало сканирования
 					//Мастер отправляет в шину команду «Начать сканирование», которая фактически звучит: «Есть кто?».
@@ -372,11 +377,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				case fast_mb_next_scan: //команда продолжить сканирование практически такая же как и начать скнирование
 					//разница лишь в отсутсвии установки  только отличается i_am_not_scaned=true
 					//stop timer 3.5 word
-					if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+					if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
 						// Starting Error
 						critical_stop();
 					}
-					if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
+					if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
 						critical_stop();
 					}
 					MX_TIM6_Init(nmbs.msg.old_arbitrage ? 3 : 1);//инициализируем таймер на ожидание начала арбитража
@@ -385,7 +390,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 					// Generate an update event to reload the Prescaler
 					// and the repetition counter (only for advanced timer) value immediately
 					//из-за бага в TIM_Base_SetConfig это закомментировано, поэтому открываем здесь
-					htim6.Instance->EGR = TIM_EGR_UG;
+					TimerFastMB.Instance->EGR = TIM_EGR_UG;
 
 					if (fast_mb_mode != mb_begin_scan) {
 						MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
@@ -413,20 +418,20 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				// because the timer runs a little slower than the CPU
 				// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
 				/*
-				 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+				 if (HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE)) {
 				 // Clear the update flag
-				 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+				 CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 				 }
 				 */
-				//while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE));
-				//CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+				//while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE));
+				//CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 				clear_tim_flag();
-				if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+				if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
 					/* Starting Error */
 					critical_stop();
 				}
 				//Receive next symbol
-				if (HAL_UART_Receive_IT(&huart2,
+				if (HAL_UART_Receive_IT(&modbusUart,
 						&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
 					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 							"HAL_UART_Receive_IT error\n");
@@ -435,7 +440,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			} else { //overflow input buffer
 				MP_FMB_DEBUG_PRINT(DEBUG_INFO, "\n!!overflow input buffer!!\n");
 				//stop timer 3.5 word
-				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+				if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
 					// Starting Error
 					critical_stop();
 				}
@@ -451,8 +456,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!mb_next_scan error!!\n");
 			//пока заглатываем символ и бежим дальше
 			//Receive next symbol
-			if (huart2.gState == HAL_UART_STATE_READY) {
-				res = HAL_UART_Receive_IT(&huart2,
+			if (modbusUart.gState == HAL_UART_STATE_READY) {
+				res = HAL_UART_Receive_IT(&modbusUart,
 						&nmbs.msg.buf[nmbs.msg.buf_rec], 1);
 				if (res != HAL_OK) {
 					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
@@ -462,7 +467,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			} else {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 						"error state:%ld RxCpltCallback mb_next_scan HAL_UART_Receive_IT\n",
-						huart2.gState);
+						modbusUart.gState);
 			}
 			break;
 		case mb_run_arbitrage:
@@ -474,8 +479,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				//Receive next symbol
 				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
 						"\n!!!arbitrage_window not start!!\n");
-				if (huart2.gState == HAL_UART_STATE_READY) {
-					res = HAL_UART_Receive_IT(&huart2,
+				if (modbusUart.gState == HAL_UART_STATE_READY) {
+					res = HAL_UART_Receive_IT(&modbusUart,
 							&nmbs.msg.buf[nmbs.msg.buf_rec], 1);
 					if (res != HAL_OK) {
 						MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
@@ -485,7 +490,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				} else {
 					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 							"error state:%ld RxCpltCallback mb_next_arbitrage HAL_UART_Receive_IT\n",
-							huart2.gState);
+							modbusUart.gState);
 				}
 			} else {
 				// arbitrage_window - 1 = это номер арбитражного окна, в котором приняли байт
@@ -506,7 +511,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			/* смысла нет арбитраж складывать в буфер
 			 if (msg_buf_inc(&nmbs)) {
 			 //Receive next symbol
-			 if (HAL_UART_Receive_IT(&huart2,
+			 if (HAL_UART_Receive_IT(&modbusUart,
 			 &nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
 			 MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Receive_IT error\n");
 			 critical_stop();
@@ -518,7 +523,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 			 }
 			 */
 			//Receive next symbol
-			if (HAL_UART_Receive_IT(&huart2, &nmbs.msg.buf[nmbs.msg.buf_rec], 1)
+			if (HAL_UART_Receive_IT(&modbusUart, &nmbs.msg.buf[nmbs.msg.buf_rec], 1)
 					!= HAL_OK) {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 				critical_stop();
@@ -540,7 +545,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 						HAL_GetTick());
 				strobe_toggle();
 				//stop timer 3.5 word
-				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+				if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
 					// Starting Error
 					critical_stop();
 				}
@@ -557,7 +562,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				}
 				if (!packet_sended) {
 					HAL_StatusTypeDef res;
-					res = HAL_UART_AbortReceive(&huart2);
+					res = HAL_UART_AbortReceive(&modbusUart);
 					if (res != HAL_OK) {
 						MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 								"HAL_UART_AbortReceive error %d\n", res);
@@ -572,11 +577,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			strobe_toggle();
 			//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
 			//stop timer arbitrage interval
-			if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+			if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
 				// Starting Error
 				critical_stop();
 			}
-			if (HAL_TIM_Base_DeInit(&htim6) != HAL_OK) {
+			if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
 				critical_stop();
 			}
 			MX_TIM6_Init(nmbs.msg.old_arbitrage ? 4 : 2);//инициализируем таймер на арбитражное окно
@@ -585,7 +590,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			// Generate an update event to reload the Prescaler
 			// and the repetition counter (only for advanced timer) value immediately
 			//из-за бага в TIM_Base_SetConfig это закомментировано, поэтому открываем здесь
-			htim6.Instance->EGR = TIM_EGR_UG;
+			TimerFastMB.Instance->EGR = TIM_EGR_UG;
 
 			if (fast_mb_mode == mb_begin_scan) {
 
@@ -606,17 +611,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			// because the timer runs a little slower than the CPU
 			// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
 			/*
-			 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE)) {
+			 if (HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE)) {
 			 // Clear the update flag
-			 CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+			 CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 			 }
 			 */
 
-			//while (!HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE));
-			//CLEAR_BIT(htim6.Instance->SR, TIM_FLAG_UPDATE);
+			//while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE));
+			//CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 			clear_tim_flag();
 
-			if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
+			if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
 				/* Starting Error */
 				critical_stop();
 			}
@@ -641,7 +646,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				break;
 			} else if (arbitrage_window >= 33) { //таймер 3.5 секунды после того как закончился арбитраж сработал
 				//stop timer 3.5 word
-				if (HAL_TIM_Base_Stop_IT(&htim6) != HAL_OK) {
+				if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
 					// Starting Error
 					critical_stop();
 				}
@@ -668,7 +673,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 						end_scan(&nmbs);
 					}
 				} else {
-					if (HAL_UART_AbortReceive(&huart2) != HAL_OK) {
+					if (HAL_UART_AbortReceive(&modbusUart) != HAL_OK) {
 						critical_stop();
 					}
 					nano_RecieveMode();
@@ -717,10 +722,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 					 //1: Reception on going
 
 				//проверяем есть ли сейчас какая либо передача на линии
-//				if ((__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET)
-//						|| (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3)
-//								== GPIO_PIN_RESET)) {
-				if ((__HAL_UART_GET_FLAG(&huart2, UART_FLAG_BUSY) == SET)) {
+				if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)
+						|| (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3)
+								== GPIO_PIN_RESET)) {
+//				if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)) {
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
 							"w%02d %ld \n!!\n!!SET!!\n!!\n", arbitrage_window,
 							HAL_GetTick());
@@ -755,7 +760,7 @@ bool fast_mb_init() {
 		// проверка и сброс должны быть подальше(пониже) относительно установки TIM_EGR_UG
 		// because the timer runs a little slower than the CPU
 		// https://community.st.com/t5/stm32-mcus-embedded-software/bug-in-tim-base-setconfig-fix-tim-base-setconfig-to-block-first/m-p/754265
-		//	 if (HAL_IS_BIT_SET(htim6.Instance->SR, TIM_FLAG_UPDATE))
+		//	 if (HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE))
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "CHECK BUG in HAL %08lx timer_set\n",
 				ver_hal);
 		return false;

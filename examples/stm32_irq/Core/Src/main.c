@@ -4,7 +4,7 @@
  * @file           : main.c
  * @brief          : Main program body
  ******************************************************************************
- nanoModbus stm32 expamle irq
+ nanoModbus stm32 fastmodbus port based on example irq
  Copyright (C) 2025 Peter Kostenko <kpvnnov@gmail.com> https://t.me/kpvnnov
  
  MIT License
@@ -604,7 +604,6 @@ int main(void) {
 	//Запускать всегда до вызова инициализации таймера
 	MX_TIM6_Init(0);
 
-//MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Begin\n");
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", Speed, RTU_SERVER_ADDRESS);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"FastModbus_Prescaler:%ld\n", FastModbus_Prescaler);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"    Arbitrage_Period:%5ld     Window_Period:%5ld\n",
