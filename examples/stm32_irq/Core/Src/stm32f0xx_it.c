@@ -56,7 +56,7 @@
 
 /* External variables --------------------------------------------------------*/
 extern TIM_HandleTypeDef htim6;
-extern UART_HandleTypeDef UartHandle;
+extern UART_HandleTypeDef UartDebug;
 extern UART_HandleTypeDef modbusUart;
 /* USER CODE BEGIN EV */
 
@@ -164,7 +164,7 @@ void USART1_IRQHandler(void)
   /* USER CODE BEGIN USART1_IRQn 0 */
 
   /* USER CODE END USART1_IRQn 0 */
-  HAL_UART_IRQHandler(&UartHandle);
+  HAL_UART_IRQHandler(&UartDebug);
   /* USER CODE BEGIN USART1_IRQn 1 */
 
   /* USER CODE END USART1_IRQn 1 */

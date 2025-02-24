@@ -169,7 +169,7 @@ void flush_debug() {
 				critical_stop();
 			}
 			debug_uart_run = true;
-			HAL_UART_Transmit_IT(&UartHandle, &debug_buffer[pos_for_send],
+			HAL_UART_Transmit_IT(&UartDebug, &debug_buffer[pos_for_send],
 					len_for_send);
 
 		} else {    	//отправим до конца массива и сдвигаем указатель на ноль
@@ -187,7 +187,7 @@ void flush_debug() {
 				critical_stop();
 			}
 			debug_uart_run = true;
-			HAL_UART_Transmit_IT(&UartHandle, &debug_buffer[pos_for_send],
+			HAL_UART_Transmit_IT(&UartDebug, &debug_buffer[pos_for_send],
 					len_for_send);
 
 		}

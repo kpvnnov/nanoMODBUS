@@ -350,7 +350,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 		}
 	}
 #ifdef NMBS_DEBUG
-	else if (huart == &UartHandle) {
+	else if (huart == &UartDebug) {
 		debug_uart_run = false;
 		flush_debug(true);
 	}

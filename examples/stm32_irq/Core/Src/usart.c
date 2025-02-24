@@ -25,7 +25,7 @@
 extern uint32_t Speed;
 /* USER CODE END 0 */
 
-UART_HandleTypeDef UartHandle;
+UART_HandleTypeDef UartDebug;
 UART_HandleTypeDef modbusUart;
 
 /* USART1 init function */
@@ -39,17 +39,17 @@ void MX_USART1_UART_Init(void) {
 	/* USER CODE BEGIN USART1_Init 1 */
 
 	/* USER CODE END USART1_Init 1 */
-	UartHandle.Instance = USART1;
-	UartHandle.Init.BaudRate = 115200;
-	UartHandle.Init.WordLength = UART_WORDLENGTH_8B;
-	UartHandle.Init.StopBits = UART_STOPBITS_1;
-	UartHandle.Init.Parity = UART_PARITY_NONE;
-	UartHandle.Init.Mode = UART_MODE_TX_RX;
-	UartHandle.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-	UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
-	UartHandle.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-	UartHandle.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-	if (HAL_UART_Init(&UartHandle) != HAL_OK) {
+	UartDebug.Instance = USART1;
+	UartDebug.Init.BaudRate = 115200;
+	UartDebug.Init.WordLength = UART_WORDLENGTH_8B;
+	UartDebug.Init.StopBits = UART_STOPBITS_1;
+	UartDebug.Init.Parity = UART_PARITY_NONE;
+	UartDebug.Init.Mode = UART_MODE_TX_RX;
+	UartDebug.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+	UartDebug.Init.OverSampling = UART_OVERSAMPLING_16;
+	UartDebug.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+	UartDebug.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+	if (HAL_UART_Init(&UartDebug) != HAL_OK) {
 		Error_Handler();
 	}
 	/* USER CODE BEGIN USART1_Init 2 */
@@ -91,10 +91,10 @@ void MX_ModbusUart_Init(void) {
 
 }
 
-void HAL_UART_MspInit(UART_HandleTypeDef *uartHandle) {
+void HAL_UART_MspInit(UART_HandleTypeDef *huart) {
 
 	GPIO_InitTypeDef GPIO_InitStruct = { 0 };
-	if (uartHandle->Instance == USART1) {
+	if (huart->Instance == USART1) {
 		/* USER CODE BEGIN USART1_MspInit 0 */
 
 		/* USER CODE END USART1_MspInit 0 */
@@ -129,7 +129,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef *uartHandle) {
 		/* USER CODE BEGIN USART1_MspInit 1 */
 
 		/* USER CODE END USART1_MspInit 1 */
-	} else if (uartHandle->Instance == USART2) {
+	} else if (huart->Instance == USART2) {
 		/* USER CODE BEGIN USART2_MspInit 0 */
 
 		/* USER CODE END USART2_MspInit 0 */
@@ -157,9 +157,9 @@ void HAL_UART_MspInit(UART_HandleTypeDef *uartHandle) {
 	}
 }
 
-void HAL_UART_MspDeInit(UART_HandleTypeDef *uartHandle) {
+void HAL_UART_MspDeInit(UART_HandleTypeDef *huart) {
 
-	if (uartHandle->Instance == USART1) {
+	if (huart->Instance == USART1) {
 		/* USER CODE BEGIN USART1_MspDeInit 0 */
 
 		/* USER CODE END USART1_MspDeInit 0 */
@@ -178,7 +178,7 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef *uartHandle) {
 		/* USER CODE BEGIN USART1_MspDeInit 1 */
 
 		/* USER CODE END USART1_MspDeInit 1 */
-	} else if (uartHandle->Instance == USART2) {
+	} else if (huart->Instance == USART2) {
 		/* USER CODE BEGIN USART2_MspDeInit 0 */
 
 		/* USER CODE END USART2_MspDeInit 0 */

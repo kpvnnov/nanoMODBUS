@@ -32,7 +32,7 @@ extern "C" {
 
 /* USER CODE END Includes */
 
-extern UART_HandleTypeDef UartHandle;
+extern UART_HandleTypeDef UartDebug;
 
 extern UART_HandleTypeDef modbusUart;
 
