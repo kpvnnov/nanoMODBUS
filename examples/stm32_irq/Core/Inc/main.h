@@ -52,6 +52,14 @@ extern "C" {
 /* USER CODE BEGIN ET */
 
 #define NMBS_DEBUG 1
+
+// Our RTU address
+#define RTU_SERVER_ADDRESS 1
+
+inline uint8_t get_modbusaddress(){
+	return RTU_SERVER_ADDRESS;
+}
+
 //выводим дополнительно изменения уровня на внешние ноги
 //в рабочей версии ОТКЛЮЧАТЬ!!!!
 #define NMBS_DEBUG_PIN (get_debug_comport() && NMBS_DEBUG)
@@ -76,7 +84,8 @@ extern "C" {
 #define DEBUG_HIGH_TRACE  4
 
 //#define get_verbose_debug(debug_level) (debug_level<=DEBUG_HIGH_TRACE)
-#define get_verbose_debug(debug_level) (debug_level<=DEBUG_ERROR)
+//#define get_verbose_debug(debug_level) (debug_level<=DEBUG_ERROR)
+#define get_verbose_debug(debug_level) (debug_level<=DEBUG_TRACE)
 
 //#define get_verbose_debug(debug_level) (debug_level<=config.otladka.verbose)
 

@@ -75,7 +75,7 @@ extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 #define REGS_ADDR_MAX 32
 
 // Our RTU address
-#define RTU_SERVER_ADDRESS 1
+//#define RTU_SERVER_ADDRESS 1
 
 /* USER CODE END PD */
 
@@ -601,9 +601,10 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
+	MX_USART1_UART_Init();
 	MX_ModbusUart_Init();
 
-	MX_USART1_UART_Init();
+
 	/* USER CODE BEGIN 2 */
 
 	if (!fast_mb_init()) {
@@ -617,7 +618,7 @@ int main(void) {
 	//Запускать всегда до вызова инициализации таймера
 	MX_TIM_FastMB_Init(0);
 
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", Speed, RTU_SERVER_ADDRESS);
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", Speed, get_modbusaddress());
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"FastModbus_Prescaler:%ld\n", FastModbus_Prescaler);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"    Arbitrage_Period:%5ld     Window_Period:%5ld\n",
 			Arbitrage_Period, Window_Period);

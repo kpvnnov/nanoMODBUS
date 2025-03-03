@@ -71,8 +71,9 @@ extern nmbs_t nmbs;
 extern volatile uint8_t packet_sended;
 extern volatile uint8_t must_reload_rs485;
 
+#define COUNTER_TIM_FLAG 200
 inline void clear_tim_flag() {
-	volatile uint8_t counter = 100;
+	volatile uint16_t counter = COUNTER_TIM_FLAG;
 	while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE)
 			&& (counter--)) {
 		if (counter == 0) {
@@ -80,9 +81,9 @@ inline void clear_tim_flag() {
 			critical_stop();
 		}
 	}
-	if (counter != 100)
-		MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "\n!!!clear_tim_flag %d ",
-				counter);
+	if (counter != COUNTER_TIM_FLAG)
+		//MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "\n!!!clear_tim_flag %d ",counter);
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!clear_tim_flag %d ",counter);
 	CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 }
 //чтобы не терять время на математические операции коэффициенты делителя рассчитать заранее
@@ -176,7 +177,10 @@ void compute_timer() {
 	if (baudrate > 19200) {
 		Normal_Period = (1750 / 50) - 1;
 	} else {
-		Normal_Period = ((7UL * 1000000UL * 11UL / (50UL * 2UL)) / baudrate); //-1 absent for rounding up
+		//оптимизирую умножение 3.5*11=38,5
+		//Normal_Period = ((7UL * 1000000UL * 11UL / (50UL * 2UL)) / baudrate); //-1 absent for rounding up
+		Normal_Period = (( 40UL * 1000000UL / 50UL ) / baudrate); //-1 absent for rounding up
+
 	}
 
 	x = SystemCoreClock / (uint32_t) (baudrate * 10UL);
@@ -295,6 +299,7 @@ void fastmodbus_RecieveMode(void) {
 	strobe_toggle();
 }
 void nano_RecieveMode(void) {
+	HAL_StatusTypeDef res;
 	strobe_toggle();
 	/* Generate an update event to reload the Prescaler
 	 and the repetition counter (only for advanced timer) value immediately */
@@ -310,15 +315,16 @@ void nano_RecieveMode(void) {
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecieveMode buf_rec:%d\n",
 			HAL_GetTick(), nmbs.msg.buf_rec);
 //Receive of data in IRQ Mode
-
-	if (HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1) != HAL_OK) {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
+	res=HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1);
+	if (res != HAL_OK) {
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error %d\n",res);
 		critical_stop();
 	}
 	clear_tim_flag();
-
-	if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
+	res=HAL_TIM_Base_Start_IT(&TimerFastMB);
+	if (res != HAL_OK) {
 		/* Starting Error */
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_TIM_Base_Start_IT error %d\n",res);
 		critical_stop();
 	}
 
@@ -352,7 +358,7 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 #ifdef NMBS_DEBUG
 	else if (huart == &UartDebug) {
 		debug_uart_run = false;
-		flush_debug(true);
+		flush_debug();
 	}
 #endif
 }
