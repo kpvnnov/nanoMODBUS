@@ -179,7 +179,7 @@ void compute_timer() {
 	} else {
 		//оптимизирую умножение 3.5*11=38,5
 		//Normal_Period = ((7UL * 1000000UL * 11UL / (50UL * 2UL)) / baudrate); //-1 absent for rounding up
-		Normal_Period = (( 40UL * 1000000UL / 50UL ) / baudrate); //-1 absent for rounding up
+		Normal_Period = ((40UL * 1000000UL / 50UL) / baudrate); //-1 absent for rounding up
 
 	}
 
@@ -315,13 +315,13 @@ void nano_RecieveMode(void) {
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecieveMode buf_rec:%d\n",
 			HAL_GetTick(), nmbs.msg.buf_rec);
 //Receive of data in IRQ Mode
-	res=HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1);
+	res = HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1);
 	if (res != HAL_OK) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error %d\n",res);
 		critical_stop();
 	}
 	clear_tim_flag();
-	res=HAL_TIM_Base_Start_IT(&TimerFastMB);
+	res = HAL_TIM_Base_Start_IT(&TimerFastMB);
 	if (res != HAL_OK) {
 		/* Starting Error */
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_TIM_Base_Start_IT error %d\n",res);
@@ -376,7 +376,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				case fast_mb_none: //продолжаем приём данных как обычно
 					//restart 3.5 timer
 					//по нормальному надо выключать таймер, если через HAL, то он стопается и запрещаются прерывания таймера
-					if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
+					res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+					if (HAL_OK != res) {
+						MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_none HAL_TIM_Base_Stop_IT error %d\n",res);
 						// Starting Error
 						critical_stop();
 					}
@@ -393,14 +395,18 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				case fast_mb_next_scan: //команда продолжить сканирование практически такая же как и начать скнирование
 					//разница лишь в отсутсвии установки  только отличается i_am_not_scaned=true
 					//stop timer 3.5 word
-					if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
+					res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+					if (HAL_OK != res) {
+						MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan HAL_TIM_Base_Stop_IT error %d\n",res);
 						// Starting Error
 						critical_stop();
 					}
-					if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
+					res = HAL_TIM_Base_DeInit(&TimerFastMB);
+					if (HAL_OK != res) {
+						MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan HAL_TIM_Base_DeInit error %d\n",res);
 						critical_stop();
 					}
-					MX_TIM_FastMB_Init(nmbs.msg.old_arbitrage ? 3 : 1);//инициализируем таймер на ожидание начала арбитража
+					MX_TIM_FastMB_Init(nmbs.msg.old_arbitrage ? 3 : 1);	//инициализируем таймер на ожидание начала арбитража
 					// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 					// поэтому пока комментируем здесь эту операцию reload
 					// Generate an update event to reload the Prescaler
@@ -442,22 +448,27 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 				//while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE));
 				//CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 				clear_tim_flag();
-				if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
+				res = HAL_TIM_Base_Start_IT(&TimerFastMB);
+				if (HAL_OK != res) {
 					/* Starting Error */
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "UART_RxCplt HAL_TIM_Base_Start_IT error %d\n",res);
 					critical_stop();
 				}
 				//Receive next symbol
-				if (HAL_UART_Receive_IT(&modbusUart,
-						&nmbs.msg.buf[nmbs.msg.buf_rec], 1) != HAL_OK) {
+				res = HAL_UART_Receive_IT(&modbusUart,
+						&nmbs.msg.buf[nmbs.msg.buf_rec], 1);
+				if (HAL_OK != res) {
 					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
-							"HAL_UART_Receive_IT error\n");
+							"UART_RxCplt HAL_UART_Receive_IT error %d\n",res);
 					critical_stop();
 				}
 			} else { //overflow input buffer
 				MP_FMB_DEBUG_PRINT(DEBUG_INFO, "\n!!overflow input buffer!!\n");
 				//stop timer 3.5 word
-				if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
+				res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+				if (HAL_OK != res) {
 					// Starting Error
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "UART_RxCplt overflow HAL_TIM_Base_Stop_IT error %d\n",res);
 					critical_stop();
 				}
 				nano_RecieveMode();
@@ -586,7 +597,7 @@ void HAL_Timer_FastModbus(TIM_HandleTypeDef *htim) {
 		if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
 			critical_stop();
 		}
-		MX_TIM_FastMB_Init(nmbs.msg.old_arbitrage ? 4 : 2);//инициализируем таймер на арбитражное окно
+		MX_TIM_FastMB_Init(nmbs.msg.old_arbitrage ? 4 : 2);	//инициализируем таймер на арбитражное окно
 		// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 		// поэтому пока комментируем здесь эту операцию reload
 		// Generate an update event to reload the Prescaler
