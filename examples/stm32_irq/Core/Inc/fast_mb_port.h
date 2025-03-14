@@ -42,28 +42,54 @@ void compute_timer(nmbs_t*);
 
 typedef struct nmbs_arg_t {
 	uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
-			Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler, Normal_Period;
+			Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler,
+			Normal_Period;
 	TIM_HandleTypeDef *htim; //указатель на таймер
 	UART_HandleTypeDef *huart; //указатель на uart
 	//void (*Timer_FastModbus)(nmbs_t*); //обработка прерываний таймера
 	HAL_StatusTypeDef (*TIM_Base_Stop)(nmbs_t*); //остановка прерываний таймера
 	HAL_StatusTypeDef (*TIM_Base_Start)(nmbs_t*); //запуск прерываний таймера
 	HAL_StatusTypeDef (*UART_Receive_IT)(nmbs_t*); //запуска приема символа по прерыванию
-	void (*fmb_RecieveMode)(nmbs_t*); //запуск приема символов в режиме fastmodbus
-	void (*nano_RecieveMode)(nmbs_t*); //запуск приема символов в обычном режиме modbus
+	//void (*fmb_RecieveMode)(nmbs_t*); //запуск приема символов в режиме fastmodbus
+	//void (*nano_RecieveMode)(nmbs_t*); //запуск приема символов в обычном режиме modbus
 	//int32_t (*read)(uint8_t* buf, uint16_t count, int32_t byte_timeout_ms,
-    //                void* arg); /*!< Bytes read transport function pointer */
-    uint8_t initialized; /*!< Reserved, workaround for older user code not calling nmbs_arg_create() */
+	//                void* arg); /*!< Bytes read transport function pointer */
+	uint8_t initialized; /*!< Reserved, workaround for older user code not calling nmbs_arg_create() */
 
 } nmbs_arg_t;
+HAL_StatusTypeDef Start_Timer(nmbs_t *nmbs);
+HAL_StatusTypeDef Stop_Timer(nmbs_t *nmbs);
+HAL_StatusTypeDef Receive_Serial(nmbs_t *nmbs);
 
-inline void strobe_toggle() {
+#ifdef COM_PORT_DEBUG
+
+static inline void strobe_toggle() {
 	if (get_debug_strobe()) {
 		HAL_GPIO_TogglePin(STROBE_GPIO_Port, STROBE_Pin);
 		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"%ld strobe ",HAL_GetTick());
 	}
 }
 
+#else
+#define strobe_toggle() (void) (0)
+#endif
+
+#define COUNTER_TIM_FLAG 200
+static inline void clear_tim_flag(nmbs_t *nmbs) {
+	volatile uint16_t counter = COUNTER_TIM_FLAG;
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+	while (!HAL_IS_BIT_SET(params->htim->Instance->SR, TIM_FLAG_UPDATE)
+			&& (counter--)) {
+		if (counter == 0) {
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!!\n ");
+			critical_stop();
+		}
+	}
+	if (counter != COUNTER_TIM_FLAG)
+		//MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "\n!!!clear_tim_flag %d ",counter);
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!clear_tim_flag %d ", counter);
+	CLEAR_BIT(params->htim->Instance->SR, TIM_FLAG_UPDATE);
+}
 
 #ifdef __cplusplus
 }

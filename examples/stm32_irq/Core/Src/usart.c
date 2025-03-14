@@ -59,7 +59,7 @@ void MX_USART1_UART_Init(void) {
 }
 /* USART2 init function */
 
-void MX_ModbusUart_Init(void) {
+void ModbusUart_Init(void) {
 
 	/* USER CODE BEGIN USART2_Init 0 */
 

@@ -37,14 +37,12 @@
 #include "nanomodbus.h"
 #include "fast_mb.h"
 #include "fast_mb_port.h"
-#ifdef COM_PORT_DEBUG
 
+#ifdef COM_PORT_DEBUG
 
 extern volatile bool debug_uart_run;
 void flush_debug();
 
-#else
-#define strobe_toggle() (void) (0)
 #endif
 
 nmbs_error answer_scan(nmbs_t *nmbs);
@@ -136,7 +134,8 @@ void UART_TxCplt(nmbs_t *nmbs) {
  	switch (nmbs->msg.fast_mb_mode) {
  	case mb_none:	//продолжаем обычный приём
  		//after end of transmit go in receive mode
- 		((nmbs_arg_t*) nmbs->platform.arg)->nano_RecieveMode(nmbs);
+ 		//((nmbs_arg_t*) nmbs->platform.arg)->nano_RecieveMode(nmbs);
+ 		nano_RecieveMode(nmbs);
  		break;
  	case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт кто-то передал
  		//подумаю завтра что делать в таких случаях
@@ -206,7 +205,7 @@ void UART_RxCplt(nmbs_t *nmbs) {
 					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan HAL_TIM_Base_DeInit error %d\n",res);
 					critical_stop();
 				}
-				MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 3 : 1);	//инициализируем таймер на ожидание начала арбитража
+				MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 3 : 1,nmbs);	//инициализируем таймер на ожидание начала арбитража
 				// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 				// поэтому пока комментируем здесь эту операцию reload
 				// Generate an update event to reload the Prescaler
@@ -401,7 +400,7 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 		if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
 			critical_stop();
 		}
-		MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 4 : 2);	//инициализируем таймер на арбитражное окно
+		MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 4 : 2,nmbs);	//инициализируем таймер на арбитражное окно
 		// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 		// поэтому пока комментируем здесь эту операцию reload
 		// Generate an update event to reload the Prescaler

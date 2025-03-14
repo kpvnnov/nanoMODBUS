@@ -57,7 +57,7 @@ extern "C" {
 // Our RTU address
 #define RTU_SERVER_ADDRESS 1
 
-inline uint8_t get_modbusaddress(){
+static inline uint8_t get_modbusaddress(){
 	return RTU_SERVER_ADDRESS;
 }
 
@@ -159,6 +159,14 @@ inline bool otladka_strobe() {
 /* End definition for USARTx clock resources */
 
 //#define TimerFastMB htim6
+
+#ifdef COM_PORT_DEBUG
+
+void flush_debug();
+
+#endif
+void ModbusUart_Init(void);
+
 
 #ifdef COM_PORT_DEBUG
 #include <stdio.h>

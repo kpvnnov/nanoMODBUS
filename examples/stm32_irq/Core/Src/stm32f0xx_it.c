@@ -55,7 +55,7 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern TIM_HandleTypeDef htim6;
+extern TIM_HandleTypeDef TimerFastMB;
 extern UART_HandleTypeDef UartDebug;
 extern UART_HandleTypeDef modbusUart;
 /* USER CODE BEGIN EV */
@@ -150,7 +150,7 @@ void TIM6_IRQHandler(void)
   /* USER CODE BEGIN TIM6_IRQn 0 */
 
   /* USER CODE END TIM6_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim6);
+  HAL_TIM_IRQHandler(&TimerFastMB);
   /* USER CODE BEGIN TIM6_IRQn 1 */
 
   /* USER CODE END TIM6_IRQn 1 */

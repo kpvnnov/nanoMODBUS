@@ -28,13 +28,13 @@
  ******************************************************************************
  */
 #include "main.h"
-#include "nanomodbus.h"
-#include "fast_mb_port.h"
-#include "fast_mb.h"
 #include "usart.h"
+#include "nanomodbus.h"
+#include "fast_mb.h"
+#include "fast_mb_port.h"
 
 
-
+/*
 #define COUNTER_TIM_FLAG 200
 inline void clear_tim_flag(nmbs_t *nmbs) {
 	volatile uint16_t counter = COUNTER_TIM_FLAG;
@@ -51,7 +51,7 @@ inline void clear_tim_flag(nmbs_t *nmbs) {
 		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!clear_tim_flag %d ",counter);
 	CLEAR_BIT(params->htim->Instance->SR, TIM_FLAG_UPDATE);
 }
-
+*/
 extern volatile bool must_reload_rs485;
 extern volatile bool packet_sended; //была ли в текущем цикле передача?
 
@@ -206,7 +206,7 @@ void fastmodbus_RecieveMode(nmbs_t *nmbs) {
 	res= ((nmbs_arg_t*) nmbs->platform.arg)->UART_Receive_IT(nmbs);
 	//if (HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1) != HAL_OK) {
 	if ( HAL_OK!=res) {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error:ld\n",res);
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error:%d\n",res);
 		critical_stop();
 	}
 	strobe_toggle();
@@ -222,14 +222,14 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 	packet_sended = false;
 	if (must_reload_rs485) { //надо перезапустить RS-485 с новыми коммуникационными параметрами
 		must_reload_rs485 = false;
-		HAL_UART_DeInit(&modbusUart);
-		MX_ModbusUart_Init();
+		HAL_UART_DeInit(params->huart); //&modbusUart
+		ModbusUart_Init(); //@todo надо тоже отвязать
 	}
-	msg_rec_reset(&nmbs);
+	msg_rec_reset(nmbs);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecieveMode buf_rec:%d\n",
 			HAL_GetTick(), nmbs->msg.buf_rec);
 	//Receive of data in IRQ Mode
-	res = HAL_UART_Receive_IT(&modbusUart, nmbs->msg.buf, 1);
+	res = HAL_UART_Receive_IT(params->huart, nmbs->msg.buf, 1); //&modbusUart
 	if (res != HAL_OK) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error %d\n",res);
 		critical_stop();
@@ -244,3 +244,18 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 
 }
 
+HAL_StatusTypeDef Start_Timer(nmbs_t* nmbs){
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+	return HAL_TIM_Base_Start_IT(params->htim);
+}
+
+HAL_StatusTypeDef Stop_Timer(nmbs_t* nmbs){
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+	return HAL_TIM_Base_Stop_IT(params->htim);
+}
+HAL_StatusTypeDef Receive_Serial(nmbs_t* nmbs){
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+
+	return HAL_UART_Receive_IT(params->huart ,
+		&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+}

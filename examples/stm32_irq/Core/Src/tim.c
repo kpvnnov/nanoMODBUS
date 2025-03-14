@@ -21,6 +21,8 @@
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
+#include "fast_mb_port.h"
+
 //extern uint32_t Speed;
 /*
 extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
@@ -34,6 +36,9 @@ TIM_HandleTypeDef TimerFastMB;
 void MX_TIM_FastMB_Init(uint16_t timer_mode,nmbs_t *nmbs) {
 
 	/* USER CODE BEGIN TIM6_Init 0 */
+
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+
 
 	/* USER CODE END TIM6_Init 0 */
 
@@ -85,31 +90,31 @@ void MX_TIM_FastMB_Init(uint16_t timer_mode,nmbs_t *nmbs) {
 	switch (timer_mode) {
 	case 0:
 		//normal 3.5 mode timer
-		TimerFastMB.Init.Prescaler = Normal_Prescaler;
-		TimerFastMB.Init.Period = Normal_Period;
+		TimerFastMB.Init.Prescaler = params->Normal_Prescaler;
+		TimerFastMB.Init.Period = params->Normal_Period;
 
 		break;
 	case 1:
 		// begin arbitrage max(3 symbols, (12 bits + 800us)) для новой 0x46
-		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
-		TimerFastMB.Init.Period = Arbitrage_Period;
+		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
+		TimerFastMB.Init.Period = params->Arbitrage_Period;
 
 		break;
 	case 2:
 		// arbitrage windows для новой 0x46
-		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
-		TimerFastMB.Init.Period = Window_Period;
+		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
+		TimerFastMB.Init.Period = params->Window_Period;
 		break;
 	case 3:
 		// begin arbitrage max(3 symbols, (12 bits + 800us)) для старой 0x60
-		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
-		TimerFastMB.Init.Period = Arbitrage_Periodx60;
+		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
+		TimerFastMB.Init.Period = params->Arbitrage_Periodx60;
 
 		break;
 	case 4:
 		// arbitrage windows для старой 0x60
-		TimerFastMB.Init.Prescaler = FastModbus_Prescaler;
-		TimerFastMB.Init.Period = Window_Periodx60;
+		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
+		TimerFastMB.Init.Period = params->Window_Periodx60;
 		break;
 	default:
 		Error_Handler();

@@ -37,11 +37,12 @@
 extern "C" {
 #endif
 
-
-
 bool fast_mb_init();
 
 void fastmodbus_RecieveMode(nmbs_t *nmbs);
+void Timer_FastModbus(nmbs_t *nmbs);
+void UART_TxCplt(nmbs_t *nmbs);
+void UART_RxCplt(nmbs_t *nmbs);
 
 //подсчёт всех интервалов для таймера, чтобы не терять время на расчёты коэффициентов в работе прерываний
 void compute_timer();

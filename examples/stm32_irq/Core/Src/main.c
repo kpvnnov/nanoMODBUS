@@ -136,7 +136,7 @@ void SystemClock_Config(void);
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim == &TimerFastMB) {
-		Timer_FastModbus(&nmbs, htim);
+		Timer_FastModbus(&nmbs);
 	}
 }
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
@@ -631,20 +631,10 @@ int main(void) {
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
 	MX_USART1_UART_Init();
-	MX_ModbusUart_Init();
+	ModbusUart_Init();
 
 	/* USER CODE BEGIN 2 */
 
-	if (!fast_mb_init()) {
-		while (1) {
-			RED_TOGGLE();
-			HAL_Delay(250);
-		}
-	}
-	//инициализация коэффициентов идёт в процедуре fast_mb_init
-	//вычисление коэффициентов таймера в разных режимах.
-	//Запускать всегда до вызова инициализации таймера
-	MX_TIM_FastMB_Init(0);
 
 	nmbs_platform_conf platform_conf;
 	nmbs_platform_conf_create(&platform_conf);
@@ -661,27 +651,41 @@ int main(void) {
 	nmbs_arg.htim=&TimerFastMB; //указатель на таймер
 	nmbs_arg.huart=&modbusUart;
 	//nmbs_arg.Timer_FastModbus; //обработка прерываний таймера
-	nmbs_arg.TIM_Base_Stop; //остановка прерываний таймера
-	nmbs_arg.TIM_Base_Start; //запуск прерываний таймера
+	nmbs_arg.TIM_Base_Start=Start_Timer; //запуск прерываний таймера
+	nmbs_arg.TIM_Base_Stop=Stop_Timer; //остановка прерываний таймера
+	nmbs_arg.UART_Receive_IT=Receive_Serial; //запуск приёма символов по rs485
 
-	nmbs_set_platform_arg(&nmbs, &nmbs_arg);
 
 
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);
+	if (err != NMBS_ERROR_NONE)
+		onError(err);
+    //запускать строго после nmbs_server_create
+	nmbs_set_platform_arg(&nmbs, &nmbs_arg);
+	if (!fast_mb_init(&nmbs)) {
+		while (1) {
+			RED_TOGGLE();
+			HAL_Delay(250);
+		}
+	}
 	nmbs.msg.fastmodbus_address = 4265607340; //(dec) или 0xFE4000AC 32 битный уникальный fastmodbus адрес устройства
 //nmbs.msg.fastmodbus_address = 40;
 //nmbs.msg.fastmodbus_address = 4294967040;
-	if (err != NMBS_ERROR_NONE)
-		onError(err);
+	//инициализация коэффициентов идёт в процедуре fast_mb_init
+	//вычисление коэффициентов таймера в разных режимах.
+	//Запускать всегда до вызова инициализации таймера
+	//!!и после инициализации nmbs_arg
+	MX_TIM_FastMB_Init(0,&nmbs);
+
 
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 //run server in interrupt mode
-	//nano_RecieveMode();
-	((nmbs_arg_t*) nmbs.platform.arg)->nano_RecieveMode(&nmbs);
+	nano_RecieveMode(&nmbs);
+	//((nmbs_arg_t*) nmbs.platform.arg)->nano_RecieveMode(&nmbs);
 	while (1) {
 		/* USER CODE END WHILE */
 

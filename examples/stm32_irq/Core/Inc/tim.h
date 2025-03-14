@@ -29,7 +29,7 @@ extern "C" {
 #include "main.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "nanomodbus.h"
 /* USER CODE END Includes */
 
 extern TIM_HandleTypeDef TimerFastMB;
@@ -38,7 +38,7 @@ extern TIM_HandleTypeDef TimerFastMB;
 
 /* USER CODE END Private defines */
 
-void MX_TIM_FastMB_Init(uint16_t);
+void MX_TIM_FastMB_Init(uint16_t,nmbs_t *);
 
 /* USER CODE BEGIN Prototypes */
 
