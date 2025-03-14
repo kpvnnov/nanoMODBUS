@@ -22,14 +22,16 @@
 
 /* USER CODE BEGIN 0 */
 //extern uint32_t Speed;
+/*
 extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 		Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler, Normal_Period;
+*/
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef TimerFastMB;
 
 /* TIM6 init function */
-void MX_TIM_FastMB_Init(uint16_t timer_mode) {
+void MX_TIM_FastMB_Init(uint16_t timer_mode,nmbs_t *nmbs) {
 
 	/* USER CODE BEGIN TIM6_Init 0 */
 

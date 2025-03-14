@@ -51,7 +51,8 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 
-#define NMBS_DEBUG 1
+//#define NMBS_DEBUG 1
+#define COM_PORT_DEBUG 1
 
 // Our RTU address
 #define RTU_SERVER_ADDRESS 1
@@ -85,6 +86,8 @@ inline uint8_t get_modbusaddress(){
 
 //#define get_verbose_debug(debug_level) (debug_level<=DEBUG_HIGH_TRACE)
 //#define get_verbose_debug(debug_level) (debug_level<=DEBUG_ERROR)
+//#define get_verbose_debug(debug_level) (debug_level<=DEBUG_INFO)
+//#define get_verbose_debug(debug_level) (debug_level<=DEBUG_WARN)
 #define get_verbose_debug(debug_level) (debug_level<=DEBUG_TRACE)
 
 //#define get_verbose_debug(debug_level) (debug_level<=config.otladka.verbose)
@@ -155,16 +158,16 @@ inline bool otladka_strobe() {
 #define USARTx_RX_AF                     GPIO_AF0_USART1
 /* End definition for USARTx clock resources */
 
-#define TimerFastMB htim6
+//#define TimerFastMB htim6
 
-#ifdef NMBS_DEBUG
+#ifdef COM_PORT_DEBUG
 #include <stdio.h>
 #define NMBS_DEBUG_PRINT(...) printf(__VA_ARGS__)
 #else
 #define NMBS_DEBUG_PRINT(...) (void) (0)
 #endif
 
-#ifdef NMBS_DEBUG
+#ifdef COM_PORT_DEBUG
 #include <stdio.h>
 //#define MP_DEBUG_PRINT(VERBOSE_LEVEL,FMT...) printf(__VA_ARGS__)
 //#define MP_DEBUG_PRINT(VERBOSE_LEVEL,FMT...) if (get_verbose_debug(VERBOSE_LEVEL)) printf(__VA_ARGS__)
@@ -176,7 +179,7 @@ inline bool otladka_strobe() {
 #define MP_DEBUG_DUMP(VERBOSE_LEVEL,BUF, LEN) (void) (0)
 #endif
 
-#ifdef NMBS_DEBUG
+#ifdef COM_PORT_DEBUG
 
 #ifdef FASTMODBUS_DEBUG
 #define MP_FMB_DEBUG_PRINT MP_DEBUG_PRINT
@@ -204,6 +207,7 @@ void Error_Handler(void);
 /* USER CODE BEGIN EFP */
 uint16_t get_baudrate();
 
+bool UART_Debug_Transmit(UART_HandleTypeDef *huart);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

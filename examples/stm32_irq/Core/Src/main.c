@@ -39,8 +39,9 @@
 /* USER CODE BEGIN Includes */
 #include "nanomodbus.h"
 #include "fast_mb.h"
+#include "fast_mb_port.h"
 
-#ifdef NMBS_DEBUG
+#ifdef COM_PORT_DEBUG
 #include <errno.h>
 #include <sys/unistd.h> // STDOUT_FILENO, STDERR_FILENO
 #include <stdio.h>
@@ -48,9 +49,11 @@
 //#else
 //#define NMBS_DEBUG_DUMP(...) (void) (0)
 
+/*
 extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 		Arbitrage_Periodx60, Window_Periodx60, Arbitrage_Periodx60,
 		Window_Periodx60, Normal_Prescaler, Normal_Period;
+*/
 
 #endif
 
@@ -96,7 +99,8 @@ uint16_t get_baudrate() {
 	return Speed;
 }
 nmbs_t nmbs;
-volatile bool packet_sended = false; //в текущем цикле была передача
+nmbs_arg_t nmbs_arg;
+volatile bool packet_sended = false; //была ли в текущем цикле передача?
 //volatile bool old_arbitrage;
 //переменная отвечающая за включение отладки дергания ногой
 volatile bool config_otladka_strobe = true;
@@ -104,13 +108,12 @@ volatile bool config_otladka_strobe = true;
 volatile bool config_otladka_comport = true;
 
 //смену скорости rs485 лучше сделать по окончании передачи пакета, когда поднимается этот флаг
-volatile uint8_t must_reload_rs485 = 0;
-
+volatile bool must_reload_rs485 = false;
 
 // A single nmbs_bitfield variable can keep 2000 coils
 nmbs_bitfield server_coils = { 0 };
 uint16_t server_registers[REGS_ADDR_MAX + 1] = { 0 };
-#ifdef NMBS_DEBUG
+#ifdef COM_PORT_DEBUG
 
 volatile bool debug_uart_run = false;
 volatile uint16_t pos_print = 0;
@@ -133,14 +136,36 @@ void SystemClock_Config(void);
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim == &TimerFastMB) {
-		HAL_Timer_FastModbus(htim);
+		Timer_FastModbus(&nmbs, htim);
+	}
+}
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
+	if (huart == &modbusUart) {
+		UART_TxCplt(&nmbs);
+	}
+#ifdef COM_PORT_DEBUG
+	else if (UART_Debug_Transmit(huart)) {
+		return;
+	}
+#endif
+}
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+	if (huart == &modbusUart) {
+		UART_RxCplt(&nmbs);
 	}
 }
 
+#ifdef COM_PORT_DEBUG
 
-#ifdef NMBS_DEBUG
+bool UART_Debug_Transmit(UART_HandleTypeDef *huart) {
+	if (huart == &UartDebug) {
+		debug_uart_run = false;
+		flush_debug();
+		return true;
+	}
+	return false;
+}
 
-//void flush_debug(bool from_isr) {
 void flush_debug() {
 	if (debug_uart_run)
 		return;
@@ -228,10 +253,14 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 
 	packet_sended = true;
 	HAL_StatusTypeDef res;
-	res = HAL_UART_AbortReceive(&modbusUart);
-	if (res != HAL_OK) {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_AbortReceive error %d\n", res);
-		critical_stop();
+	//перенесли отмену приёма в таймер
+	if (HAL_UART_STATE_BUSY_RX == modbusUart.gState) {
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"!!!write_serial wrong HAL_UART_STATE_BUSY_RX\n");
+		res = HAL_UART_AbortReceive(&modbusUart);
+		if (res != HAL_OK) {
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"write_serial UART_AbortReceive error %d\n", res);
+			critical_stop();
+		}
 	}
 	if (modbusUart.gState == HAL_UART_STATE_READY) {
 		SetRS485Transmit();
@@ -508,7 +537,7 @@ void onError(nmbs_error err) {
 	exit(0);
 }
 
-#ifdef NMBS_DEBUG
+#ifdef COM_PORT_DEBUG
 
 int _write(int file, char *data, int len) {
 	if ((file != STDOUT_FILENO) && (file != STDERR_FILENO)) {
@@ -604,7 +633,6 @@ int main(void) {
 	MX_USART1_UART_Init();
 	MX_ModbusUart_Init();
 
-
 	/* USER CODE BEGIN 2 */
 
 	if (!fast_mb_init()) {
@@ -618,14 +646,6 @@ int main(void) {
 	//Запускать всегда до вызова инициализации таймера
 	MX_TIM_FastMB_Init(0);
 
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Speed:%ld Address:%d\n", Speed, get_modbusaddress());
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"FastModbus_Prescaler:%ld\n", FastModbus_Prescaler);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"    Arbitrage_Period:%5ld     Window_Period:%5ld\n",
-			Arbitrage_Period, Window_Period);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Old Arbitrage_Period:%5ld old Window_Period:%5ld\n",
-			Arbitrage_Periodx60, Window_Periodx60);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,"Normal_Prescaler:%ld Normal_Period:%ld\n", Normal_Prescaler,
-			Normal_Period);
 	nmbs_platform_conf platform_conf;
 	nmbs_platform_conf_create(&platform_conf);
 	platform_conf.transport = NMBS_TRANSPORT_RTU;
@@ -637,6 +657,15 @@ int main(void) {
 	callbacks.read_coils = handle_read_coils;
 //0x03
 	callbacks.read_holding_registers = handler_read_holding_registers;
+
+	nmbs_arg.htim=&TimerFastMB; //указатель на таймер
+	nmbs_arg.huart=&modbusUart;
+	//nmbs_arg.Timer_FastModbus; //обработка прерываний таймера
+	nmbs_arg.TIM_Base_Stop; //остановка прерываний таймера
+	nmbs_arg.TIM_Base_Start; //запуск прерываний таймера
+
+	nmbs_set_platform_arg(&nmbs, &nmbs_arg);
+
 
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);
@@ -651,14 +680,15 @@ int main(void) {
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 //run server in interrupt mode
-	nano_RecieveMode();
+	//nano_RecieveMode();
+	((nmbs_arg_t*) nmbs.platform.arg)->nano_RecieveMode(&nmbs);
 	while (1) {
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
 		//Here you can add the logic of the main program. At this point, modbus communication is in interrupt mode
 		RED_TOGGLE();
-#ifdef NMBS_DEBUG
+#ifdef COM_PORT_DEBUG
 		//flush_debug(false);
 #endif
 		HAL_Delay(1000);
