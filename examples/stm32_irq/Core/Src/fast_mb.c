@@ -596,7 +596,7 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 					if (HAL_OK != res) {
 						critical_stop();
 					}
-					write_serial(FF, 1, 0, &nmbs->platform.arg);
+					write_serial(FF, 1, 0, nmbs->platform.arg);
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld FF ",
 							nmbs->msg.arbitrage_window, HAL_GetTick());
 				}
@@ -625,10 +625,13 @@ bool fast_mb_init(nmbs_t *nmbs) {
 		return false;
 	if (params->UART_Receive == NULL)
 		return false;
+	if (params->UART_Transmit == NULL)
+		return false;
 	if (params->UART_AbortReceive == NULL)
 		return false;
 	if (params->TIM_ReInit == NULL)
 		return false;
+	params->my_nmsb=nmbs;
 	compute_timer(nmbs);
 	nmbs->msg.fast_mb_mode = mb_none; //работаем как с обычным modbus
 	nmbs->msg.i_am_not_scaned = false;

@@ -196,16 +196,51 @@ void compute_timer(nmbs_t *nmbs) {
 //	return HAL_UART_Receive_IT(((nmbs_arg_t*) nmbs->platform.arg)->huart, &nmbs->msg.buf[nmbs->msg.buf_rec], 1);
 //}
 
+int32_t write_serial(const uint8_t *buf, uint16_t count,
+		int32_t byte_timeout_ms, void *arg) {
+	//nmbs_t *params = (nmbs_t*) arg;
+	nmbs_arg_t *params = (nmbs_arg_t*) arg;
+	nmbs_t *nmbs = params->my_nmsb;
+
+
+	packet_sended = true;
+	HAL_StatusTypeDef res;
+	//перенесли отмену приёма в таймер
+	__HAL_ENTER_CRITICAL_SECTION();
+	if (HAL_UART_STATE_BUSY_RX == params->huart->RxState) {
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"!!!write_serial wrong HAL_UART_STATE_BUSY_RX\n");
+		//res = HAL_UART_AbortReceive(&modbusUart);
+		res = params->UART_AbortReceive(nmbs);
+		if (HAL_OK != res) {
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"write_serial UART_AbortReceive error %d\n", res);
+			critical_stop();
+		}
+	}
+	if (params->huart->gState == HAL_UART_STATE_READY) {
+		SetRS485Transmit();
+		//res = HAL_UART_Transmit_IT(&modbusUart, buf, count);
+		res = params->UART_Transmit(nmbs, buf, count);
+		if (res != HAL_OK) {
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"UART_Transmit error %d\n", res);
+			critical_stop();
+		}
+	} else {
+		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld write_serial UART_Transmit \n", params->huart->gState);
+	}
+	__HAL_EXIT_CRITICAL_SECTION();
+	return count;
+}
+
 void fastmodbus_RecieveMode(nmbs_t *nmbs) {
 	HAL_StatusTypeDef res;
 	strobe_toggle();
 	__HAL_ENTER_CRITICAL_SECTION();
 	//nmbs->msg.buf_rec = 0; //нет смысла забивать этими данными буфер, поэтому всегда обнуляем
-    msg_rec_reset(nmbs); //нет смысла забивать этими данными буфер, поэтому всегда обнуляем
+	msg_rec_reset(nmbs); //нет смысла забивать этими данными буфер, поэтому всегда обнуляем
 	SetRS485Receive();
 
 	//Receive of data in IRQ Mode
-	
+
 	res = ((nmbs_arg_t*) nmbs->platform.arg)->UART_Receive(nmbs);
 	__HAL_EXIT_CRITICAL_SECTION();
 	//if (HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1) != HAL_OK) {
@@ -267,6 +302,11 @@ HAL_StatusTypeDef Receive_Serial(nmbs_t *nmbs) {
 
 	return HAL_UART_Receive_IT(params->huart, &nmbs->msg.buf[nmbs->msg.buf_rec],
 			1);
+}
+HAL_StatusTypeDef Transmit_Serial(nmbs_t *nmbs , uint8_t *pData, uint16_t Size) {
+//	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs_arg);
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+	return HAL_UART_Transmit_IT(params->huart, pData, Size);
 }
 
 HAL_StatusTypeDef Abort_Serial(nmbs_t *nmbs) {

@@ -48,22 +48,28 @@ typedef struct nmbs_arg_t {
 	UART_HandleTypeDef *huart; //указатель на uart
 	//void (*Timer_FastModbus)(nmbs_t*); //обработка прерываний таймера
 	HAL_StatusTypeDef (*TIM_Stop)(nmbs_t*); //остановка прерываний таймера
-	HAL_StatusTypeDef (*TIM_ReInit)(uint8_t,nmbs_t*); //переинициализация таймера
+	HAL_StatusTypeDef (*TIM_ReInit)(uint8_t, nmbs_t*); //переинициализация таймера
 	HAL_StatusTypeDef (*TIM_Start)(nmbs_t*); //запуск прерываний таймера
 	HAL_StatusTypeDef (*UART_Receive)(nmbs_t*); //запуска приема символа по прерыванию
+	HAL_StatusTypeDef (*UART_Transmit)(nmbs_t*, uint8_t*, uint16_t); //запуск передачи массива
 	HAL_StatusTypeDef (*UART_AbortReceive)(nmbs_t*); //остановка приема символов
 	//void (*fmb_RecieveMode)(nmbs_t*); //запуск приема символов в режиме fastmodbus
 	//void (*nano_RecieveMode)(nmbs_t*); //запуск приема символов в обычном режиме modbus
 	//int32_t (*read)(uint8_t* buf, uint16_t count, int32_t byte_timeout_ms,
 	//                void* arg); /*!< Bytes read transport function pointer */
-	uint8_t initialized; /*!< Reserved, workaround for older user code not calling nmbs_arg_create() */
+	nmbs_t *my_nmsb; //нужен указатель на свой nmbs в процедуре write_serial
+//uint8_t initialized; /*!< Reserved, workaround for older user code not calling nmbs_arg_create() */
 
 } nmbs_arg_t;
 HAL_StatusTypeDef Start_Timer(nmbs_t *nmbs);
 HAL_StatusTypeDef Stop_Timer(nmbs_t *nmbs);
 HAL_StatusTypeDef Receive_Serial(nmbs_t *nmbs);
-HAL_StatusTypeDef Abort_Serial(nmbs_t* nmbs);
-HAL_StatusTypeDef TIM_ReStart(uint8_t,nmbs_t* nmbs);
+HAL_StatusTypeDef Transmit_Serial(nmbs_t *nmbs, uint8_t*, uint16_t);
+HAL_StatusTypeDef Abort_Serial(nmbs_t *nmbs);
+HAL_StatusTypeDef TIM_ReStart(uint8_t, nmbs_t *nmbs);
+
+int32_t write_serial(const uint8_t *buf, uint16_t count,
+		int32_t byte_timeout_ms, void *arg);
 
 #ifdef COM_PORT_DEBUG
 
@@ -85,7 +91,8 @@ static inline void clear_tim_flag(nmbs_t *nmbs) {
 	while (!HAL_IS_BIT_SET(params->htim->Instance->SR, TIM_FLAG_UPDATE)
 			&& (counter--)) {
 		if (counter == 0) {
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!! %02lx\n ",params->htim->Instance->SR);
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!! %02lx\n ",
+					params->htim->Instance->SR);
 			critical_stop();
 		}
 	}

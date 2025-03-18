@@ -250,7 +250,7 @@ int32_t read_from_buf(uint8_t *buf, uint16_t count, int32_t byte_timeout_ms,
 	return ((nmbs.msg.buf_rec - nmbs.msg.buf_idx - count) >= 0 ?
 			count : (nmbs.msg.buf_rec - nmbs.msg.buf_idx));
 }
-
+/*
 int32_t write_serial(const uint8_t *buf, uint16_t count,
 		int32_t byte_timeout_ms, void *arg) {
 
@@ -279,6 +279,7 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 	__HAL_EXIT_CRITICAL_SECTION();
 	return count;
 }
+*/
 
 nmbs_error handle_read_coils(uint16_t address, uint16_t quantity,
 		nmbs_bitfield coils_out, uint8_t unit_id, void *arg) {
@@ -658,6 +659,7 @@ int main(void) {
 	nmbs_arg.TIM_Start = Start_Timer; //запуск прерываний таймера
 	nmbs_arg.TIM_Stop = Stop_Timer; //остановка прерываний таймера
 	nmbs_arg.UART_Receive = Receive_Serial; //запуск приёма символов по rs485
+	nmbs_arg.UART_Transmit = Transmit_Serial; //запуск передачи буфера
 	nmbs_arg.UART_AbortReceive = Abort_Serial; //остановка приема
 	nmbs_arg.TIM_ReInit=TIM_ReStart; //реинициализация таймера на новый период
 
