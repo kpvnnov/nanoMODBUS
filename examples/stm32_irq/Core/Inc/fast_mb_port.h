@@ -47,9 +47,11 @@ typedef struct nmbs_arg_t {
 	TIM_HandleTypeDef *htim; //указатель на таймер
 	UART_HandleTypeDef *huart; //указатель на uart
 	//void (*Timer_FastModbus)(nmbs_t*); //обработка прерываний таймера
-	HAL_StatusTypeDef (*TIM_Base_Stop)(nmbs_t*); //остановка прерываний таймера
-	HAL_StatusTypeDef (*TIM_Base_Start)(nmbs_t*); //запуск прерываний таймера
-	HAL_StatusTypeDef (*UART_Receive_IT)(nmbs_t*); //запуска приема символа по прерыванию
+	HAL_StatusTypeDef (*TIM_Stop)(nmbs_t*); //остановка прерываний таймера
+	HAL_StatusTypeDef (*TIM_ReInit)(uint8_t,nmbs_t*); //переинициализация таймера
+	HAL_StatusTypeDef (*TIM_Start)(nmbs_t*); //запуск прерываний таймера
+	HAL_StatusTypeDef (*UART_Receive)(nmbs_t*); //запуска приема символа по прерыванию
+	HAL_StatusTypeDef (*UART_AbortReceive)(nmbs_t*); //остановка приема символов
 	//void (*fmb_RecieveMode)(nmbs_t*); //запуск приема символов в режиме fastmodbus
 	//void (*nano_RecieveMode)(nmbs_t*); //запуск приема символов в обычном режиме modbus
 	//int32_t (*read)(uint8_t* buf, uint16_t count, int32_t byte_timeout_ms,
@@ -60,6 +62,8 @@ typedef struct nmbs_arg_t {
 HAL_StatusTypeDef Start_Timer(nmbs_t *nmbs);
 HAL_StatusTypeDef Stop_Timer(nmbs_t *nmbs);
 HAL_StatusTypeDef Receive_Serial(nmbs_t *nmbs);
+HAL_StatusTypeDef Abort_Serial(nmbs_t* nmbs);
+HAL_StatusTypeDef TIM_ReInit(uint8_t,nmbs_t* nmbs);
 
 #ifdef COM_PORT_DEBUG
 
@@ -81,7 +85,7 @@ static inline void clear_tim_flag(nmbs_t *nmbs) {
 	while (!HAL_IS_BIT_SET(params->htim->Instance->SR, TIM_FLAG_UPDATE)
 			&& (counter--)) {
 		if (counter == 0) {
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!!\n ");
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!! %02x\n ",params->htim->Instance->SR);
 			critical_stop();
 		}
 	}

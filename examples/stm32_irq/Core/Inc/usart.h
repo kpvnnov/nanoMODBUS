@@ -34,7 +34,7 @@ extern "C" {
 
 extern UART_HandleTypeDef UartDebug;
 
-extern UART_HandleTypeDef modbusUart;
+//extern UART_HandleTypeDef modbusUart;
 
 /* USER CODE BEGIN Private defines */
 

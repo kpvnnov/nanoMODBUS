@@ -32,13 +32,13 @@ extern "C" {
 #include "nanomodbus.h"
 /* USER CODE END Includes */
 
-extern TIM_HandleTypeDef TimerFastMB;
+//extern TIM_HandleTypeDef TimerFastMB;
 
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
 
-void MX_TIM_FastMB_Init(uint16_t,nmbs_t *);
+HAL_StatusTypeDef MX_TIM_FastMB_Init(uint8_t,nmbs_t *);
 
 /* USER CODE BEGIN Prototypes */
 

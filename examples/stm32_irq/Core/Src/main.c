@@ -50,10 +50,10 @@
 //#define NMBS_DEBUG_DUMP(...) (void) (0)
 
 /*
-extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
-		Arbitrage_Periodx60, Window_Periodx60, Arbitrage_Periodx60,
-		Window_Periodx60, Normal_Prescaler, Normal_Period;
-*/
+ extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
+ Arbitrage_Periodx60, Window_Periodx60, Arbitrage_Periodx60,
+ Window_Periodx60, Normal_Prescaler, Normal_Period;
+ */
 
 #endif
 
@@ -90,6 +90,9 @@ extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+extern UART_HandleTypeDef modbusUart;
+extern TIM_HandleTypeDef TimerFastMB;
+
 uint32_t Speed = 96;
 //uint32_t Speed = 192;
 //uint32_t Speed = 384;
@@ -254,6 +257,7 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 	packet_sended = true;
 	HAL_StatusTypeDef res;
 	//перенесли отмену приёма в таймер
+	__HAL_ENTER_CRITICAL_SECTION();
 	if (HAL_UART_STATE_BUSY_RX == modbusUart.gState) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"!!!write_serial wrong HAL_UART_STATE_BUSY_RX\n");
 		res = HAL_UART_AbortReceive(&modbusUart);
@@ -272,6 +276,7 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 	} else {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld write_serial HAL_UART_Transmit_IT \n", modbusUart.gState);
 	}
+	__HAL_EXIT_CRITICAL_SECTION();
 	return count;
 }
 
@@ -635,7 +640,6 @@ int main(void) {
 
 	/* USER CODE BEGIN 2 */
 
-
 	nmbs_platform_conf platform_conf;
 	nmbs_platform_conf_create(&platform_conf);
 	platform_conf.transport = NMBS_TRANSPORT_RTU;
@@ -647,21 +651,20 @@ int main(void) {
 	callbacks.read_coils = handle_read_coils;
 //0x03
 	callbacks.read_holding_registers = handler_read_holding_registers;
-
-	nmbs_arg.htim=&TimerFastMB; //указатель на таймер
-	nmbs_arg.huart=&modbusUart;
+	nmbs_fastmb_arg_create(&nmbs_arg);
+	nmbs_arg.htim = &TimerFastMB; //указатель на таймер
+	nmbs_arg.huart = &modbusUart;
 	//nmbs_arg.Timer_FastModbus; //обработка прерываний таймера
-	nmbs_arg.TIM_Base_Start=Start_Timer; //запуск прерываний таймера
-	nmbs_arg.TIM_Base_Stop=Stop_Timer; //остановка прерываний таймера
-	nmbs_arg.UART_Receive_IT=Receive_Serial; //запуск приёма символов по rs485
-
-
+	nmbs_arg.TIM_Start = Start_Timer; //запуск прерываний таймера
+	nmbs_arg.TIM_Stop = Stop_Timer; //остановка прерываний таймера
+	nmbs_arg.UART_Receive = Receive_Serial; //запуск приёма символов по rs485
+	nmbs_arg.UART_AbortReceive = Abort_Serial; //остановка приема
 
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);
 	if (err != NMBS_ERROR_NONE)
 		onError(err);
-    //запускать строго после nmbs_server_create
+	//запускать строго после nmbs_server_create
 	nmbs_set_platform_arg(&nmbs, &nmbs_arg);
 	if (!fast_mb_init(&nmbs)) {
 		while (1) {
@@ -672,11 +675,11 @@ int main(void) {
 	nmbs.msg.fastmodbus_address = 4265607340; //(dec) или 0xFE4000AC 32 битный уникальный fastmodbus адрес устройства
 //nmbs.msg.fastmodbus_address = 40;
 //nmbs.msg.fastmodbus_address = 4294967040;
-	//инициализация коэффициентов идёт в процедуре fast_mb_init
-	//вычисление коэффициентов таймера в разных режимах.
-	//Запускать всегда до вызова инициализации таймера
-	//!!и после инициализации nmbs_arg
-	MX_TIM_FastMB_Init(0,&nmbs);
+			//инициализация коэффициентов идёт в процедуре fast_mb_init
+			//вычисление коэффициентов таймера в разных режимах.
+			//Запускать всегда до вызова инициализации таймера
+			//!!и после инициализации nmbs_arg
+	MX_TIM_FastMB_Init(0, &nmbs);
 
 
 	/* USER CODE END 2 */

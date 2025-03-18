@@ -77,8 +77,9 @@ void ModbusUart_Init(void) {
 	modbusUart.Init.HwFlowCtl = UART_HWCONTROL_NONE;
 	modbusUart.Init.OverSampling = UART_OVERSAMPLING_16;
 	modbusUart.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-	modbusUart.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_RXOVERRUNDISABLE_INIT
-			| UART_ADVFEATURE_DMADISABLEONERROR_INIT;
+	modbusUart.AdvancedInit.AdvFeatureInit =
+			UART_ADVFEATURE_RXOVERRUNDISABLE_INIT
+					| UART_ADVFEATURE_DMADISABLEONERROR_INIT;
 	modbusUart.AdvancedInit.OverrunDisable = UART_ADVFEATURE_OVERRUN_DISABLE;
 	modbusUart.AdvancedInit.DMADisableonRxError =
 	UART_ADVFEATURE_DMA_DISABLEONRXERROR;

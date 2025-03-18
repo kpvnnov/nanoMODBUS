@@ -131,37 +131,38 @@ fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 }
 
 void UART_TxCplt(nmbs_t *nmbs) {
- 	switch (nmbs->msg.fast_mb_mode) {
- 	case mb_none:	//продолжаем обычный приём
- 		//after end of transmit go in receive mode
- 		//((nmbs_arg_t*) nmbs->platform.arg)->nano_RecieveMode(nmbs);
- 		nano_RecieveMode(nmbs);
- 		break;
- 	case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт кто-то передал
- 		//подумаю завтра что делать в таких случаях
- 		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
- 				"\n!!error end transmit mb_begin_scan!!\n");
- 		break;
- 	case mb_next_scan: //ахринеть, таймаут к началу арбитража команды следующего сканирования ещё не кончился, а байт кто-то передал
- 		//подумаю завтра что делать в таких случаях
- 		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
- 				"\n!!error end transmit mb_next_scan!!\n");
- 		break;
- 	case mb_run_arbitrage://передавали Доминантное состояние (передаётся значением 0xFF)
- 	case mb_next_arbitrage:	//передавали Доминантное состояние (передаётся значением 0xFF)
- 		//надо перейти на приём
- 		fastmodbus_RecieveMode(nmbs);
- 		break;
- 	default:
- 		critical_stop();
- 	}
- }
+	switch (nmbs->msg.fast_mb_mode) {
+	case mb_none:	//продолжаем обычный приём
+		//after end of transmit go in receive mode
+		//((nmbs_arg_t*) nmbs->platform.arg)->nano_RecieveMode(nmbs);
+		nano_RecieveMode(nmbs);
+		break;
+	case mb_begin_scan: //ахринеть, таймаут к началу арбитража ещё не кончился, а байт кто-то передал
+		//подумаю завтра что делать в таких случаях
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+				"\n!!error end transmit mb_begin_scan!!\n");
+		break;
+	case mb_next_scan: //ахринеть, таймаут к началу арбитража команды следующего сканирования ещё не кончился, а байт кто-то передал
+		//подумаю завтра что делать в таких случаях
+		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
+				"\n!!error end transmit mb_next_scan!!\n");
+		break;
+	case mb_run_arbitrage: //передавали Доминантное состояние (передаётся значением 0xFF)
+	case mb_next_arbitrage:	//передавали Доминантное состояние (передаётся значением 0xFF)
+		//надо перейти на приём
+		fastmodbus_RecieveMode(nmbs);
+		break;
+	default:
+		critical_stop();
+	}
+}
 
 
 
 void UART_RxCplt(nmbs_t *nmbs) {
 
 	HAL_StatusTypeDef res;
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "%ld uart %02x buf_rec:%d ",
 			HAL_GetTick(), nmbs->msg.buf[nmbs->msg.buf_rec],
@@ -175,15 +176,16 @@ void UART_RxCplt(nmbs_t *nmbs) {
 				//restart 3.5 timer
 				//по нормальному надо выключать таймер, если через HAL, то он стопается и запрещаются прерывания таймера
 				//res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
-				res= ((nmbs_arg_t*) nmbs->platform.arg)->TIM_Base_Stop(nmbs);
+				res = params->TIM_Stop(nmbs);
 				if (HAL_OK != res) {
-					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_none HAL_TIM_Base_Stop_IT error %d\n",res);
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_none TIM_Stop error %d\n",res);
 					// Starting Error
 					critical_stop();
 				}
 				// Generate an update event to reload the Prescaler
 				// and the repetition counter (only for advanced timer) value immediately
-				TimerFastMB.Instance->EGR = TIM_EGR_UG;
+				//TimerFastMB.Instance->EGR = TIM_EGR_UG;
+				params->htim->Instance->EGR = TIM_EGR_UG;
 				break;
 				//Начало сканирования
 				//Мастер отправляет в шину команду «Начать сканирование», которая фактически звучит: «Есть кто?».
@@ -194,24 +196,34 @@ void UART_RxCplt(nmbs_t *nmbs) {
 			case fast_mb_next_scan: //команда продолжить сканирование практически такая же как и начать скнирование
 				//разница лишь в отсутсвии установки  только отличается i_am_not_scaned=true
 				//stop timer 3.5 word
-				res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+				//res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+				res = params->TIM_Stop(nmbs);
 				if (HAL_OK != res) {
-					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan HAL_TIM_Base_Stop_IT error %d\n",res);
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan TIM_Stop error %d\n",res);
 					// Starting Error
 					critical_stop();
 				}
-				res = HAL_TIM_Base_DeInit(&TimerFastMB);
+				/*
+				 res = HAL_TIM_Base_DeInit(&TimerFastMB);
+				 if (HAL_OK != res) {
+				 MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan HAL_TIM_Base_DeInit error %d\n",res);
+				 critical_stop();
+				 }
+				 MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 3 : 1,nmbs);	//инициализируем таймер на ожидание начала арбитража
+				 */
+				res = params->TIM_ReInit(nmbs->msg.old_arbitrage ? 3 : 1, nmbs);//инициализируем таймер на ожидание начала арбитража
 				if (HAL_OK != res) {
-					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan HAL_TIM_Base_DeInit error %d\n",res);
+					MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "fast_mb_x_scan TIM_ReInit error %d\n",res);
 					critical_stop();
 				}
-				MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 3 : 1,nmbs);	//инициализируем таймер на ожидание начала арбитража
+
 				// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 				// поэтому пока комментируем здесь эту операцию reload
 				// Generate an update event to reload the Prescaler
 				// and the repetition counter (only for advanced timer) value immediately
 				//из-за бага в TIM_Base_SetConfig это закомментировано, поэтому открываем здесь
-				TimerFastMB.Instance->EGR = TIM_EGR_UG;
+				//TimerFastMB.Instance->EGR = TIM_EGR_UG;
+				params->htim->Instance->EGR = TIM_EGR_UG;
 
 				if (nmbs->msg.fast_mb_mode != mb_begin_scan) {
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
@@ -247,15 +259,17 @@ void UART_RxCplt(nmbs_t *nmbs) {
 			//while (!HAL_IS_BIT_SET(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE));
 			//CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 			clear_tim_flag(nmbs);
-			res = HAL_TIM_Base_Start_IT(&TimerFastMB);
+			//res = HAL_TIM_Base_Start_IT(&TimerFastMB);
+			res = params->TIM_Start(nmbs);
+
 			if (HAL_OK != res) {
 				/* Starting Error */
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "UART_RxCplt HAL_TIM_Base_Start_IT error %d\n",res);
 				critical_stop();
 			}
 			//Receive next symbol
-			res = HAL_UART_Receive_IT(&modbusUart,
-					&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+			//res = HAL_UART_Receive_IT(&modbusUart,&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+			res = params->UART_Receive(nmbs);
 			if (HAL_OK != res) {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 						"UART_RxCplt HAL_UART_Receive_IT error %d\n",res);
@@ -264,7 +278,8 @@ void UART_RxCplt(nmbs_t *nmbs) {
 		} else { //overflow input buffer
 			MP_FMB_DEBUG_PRINT(DEBUG_INFO, "\n!!overflow input buffer!!\n");
 			//stop timer 3.5 word
-			res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+			//res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+			res = params->TIM_Stop(nmbs);
 			if (HAL_OK != res) {
 				// Starting Error
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "UART_RxCplt overflow HAL_TIM_Base_Stop_IT error %d\n",res);
@@ -282,9 +297,9 @@ void UART_RxCplt(nmbs_t *nmbs) {
 		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!mb_next_scan error!!\n");
 		//пока заглатываем символ и бежим дальше
 		//Receive next symbol
-		if (modbusUart.gState == HAL_UART_STATE_READY) {
-			res = HAL_UART_Receive_IT(&modbusUart,
-					&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+		if (params->huart->gState == HAL_UART_STATE_READY) {
+			//res = HAL_UART_Receive_IT(&modbusUart,&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+			res = params->UART_Receive(nmbs);
 			if (res != HAL_OK) {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 						"HAL_UART_Receive_IT error\n");
@@ -293,7 +308,7 @@ void UART_RxCplt(nmbs_t *nmbs) {
 		} else {
 			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 					"error state:%ld RxCpltCallback mb_next_scan HAL_UART_Receive_IT\n",
-					modbusUart.gState);
+					params->huart->gState);
 		}
 		break;
 	case mb_run_arbitrage:
@@ -305,9 +320,9 @@ void UART_RxCplt(nmbs_t *nmbs) {
 			//Receive next symbol
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
 					"\n!!!arbitrage_window not start!!\n");
-			if (modbusUart.gState == HAL_UART_STATE_READY) {
-				res = HAL_UART_Receive_IT(&modbusUart,
-						&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+			if (params->huart->gState == HAL_UART_STATE_READY) {
+				//res = HAL_UART_Receive_IT(&modbusUart,&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+				res = params->UART_Receive(nmbs);
 				if (res != HAL_OK) {
 					MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 							"HAL_UART_Receive_IT error\n");
@@ -316,12 +331,13 @@ void UART_RxCplt(nmbs_t *nmbs) {
 			} else {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 						"error state:%ld RxCpltCallback mb_next_arbitrage HAL_UART_Receive_IT\n",
-						modbusUart.gState);
+						params->huart->gState);
 			}
 		} else if (nmbs->msg.arbitrage_window <= 32) {
 			// arbitrage_window - 1 = это номер арбитражного окна, в котором приняли байт
 			if (!nmbs->msg.arbitrage_loss) {
-				if (nmbs->msg.arbitrage_word & (0x80000000 >> (nmbs->msg.arbitrage_window - 1))) { //1 - рециссивное состояние — это молчание в
+				if (nmbs->msg.arbitrage_word
+						& (0x80000000 >> (nmbs->msg.arbitrage_window - 1))) { //1 - рециссивное состояние — это молчание в
 					//течение арбитражного окна, если обнаружили передачу - проиграли
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
 							"w%02d %ld \n!loss!\n ", nmbs->msg.arbitrage_window,
@@ -334,8 +350,9 @@ void UART_RxCplt(nmbs_t *nmbs) {
 			}
 		}
 		//Receive next symbol
-		if (HAL_UART_Receive_IT(&modbusUart, &nmbs->msg.buf[nmbs->msg.buf_rec], 1)
-				!= HAL_OK) {
+		res = params->UART_Receive(nmbs);
+		//if (HAL_UART_Receive_IT(&modbusUart, &nmbs->msg.buf[nmbs->msg.buf_rec], 1)!= HAL_OK) {
+		if (HAL_OK != res) {
 			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error\n");
 			critical_stop();
 		}
@@ -348,6 +365,7 @@ void UART_RxCplt(nmbs_t *nmbs) {
 void Timer_FastModbus(nmbs_t *nmbs) {
 	HAL_StatusTypeDef res;
 	uint32_t Size = msg_buf_get(nmbs);
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 	switch (nmbs->msg.fast_mb_mode) {
 	case mb_none:	//продолжаем обычный приём
 		//нет смысла запускать процедуру обработки модбас при пустом входном буфере
@@ -355,15 +373,19 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld normal timer\n",
 					HAL_GetTick());
 			strobe_toggle();
+			__HAL_ENTER_CRITICAL_SECTION();
 			//stop timer 3.5 word
-			res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+			//res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+			res = params->TIM_Stop(nmbs);
 			if (HAL_OK != res) {
 				// Starting Error
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "Timer_FastModbus mb_none TIM_Base_Stop_IT error %d\n",res);
 				critical_stop();
 			}
+			//res = HAL_UART_AbortReceive(&modbusUart);
+			res = params->UART_AbortReceive(nmbs);
+			__HAL_EXIT_CRITICAL_SECTION();
 
-			res = HAL_UART_AbortReceive(&modbusUart);
 			if (res != HAL_OK) {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 						"Timer_FastModbus mb_none UART_AbortReceive error %d\n", res);
@@ -391,25 +413,30 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 		strobe_toggle();
 		//переходим в режим арбитража: надо начать арбитраж и перенастроить таймер на арбитражное окно
 		//stop timer arbitrage interval
-		res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+		__HAL_ENTER_CRITICAL_SECTION();
+		//res = HAL_TIM_Base_Stop_IT(&TimerFastMB);
+		res = params->TIM_Stop(nmbs);
 		if (HAL_OK != res) {
 			// Starting Error
 			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "Timer_FastModbus mb_x_scan TIM_Base_Stop_IT error %d\n",res);
 			critical_stop();
 		}
-		if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
-			critical_stop();
-		}
-		MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 4 : 2,nmbs);	//инициализируем таймер на арбитражное окно
+		/*
+		 if (HAL_TIM_Base_DeInit(&TimerFastMB) != HAL_OK) {
+		 critical_stop();
+		 }
+		 MX_TIM_FastMB_Init(nmbs->msg.old_arbitrage ? 4 : 2,nmbs);	//инициализируем таймер на арбитражное окно
+		 */
+		res = params->TIM_ReInit(nmbs->msg.old_arbitrage ? 4 : 2, nmbs);//инициализируем таймер на арбитражное окно
 		// TIM_EGR_UG есть внутри HAL_TIM_Base_Init, который вызывает TIM_Base_SetConfig
 		// поэтому пока комментируем здесь эту операцию reload
 		// Generate an update event to reload the Prescaler
 		// and the repetition counter (only for advanced timer) value immediately
 		//из-за бага в TIM_Base_SetConfig это закомментировано, поэтому открываем здесь
-		TimerFastMB.Instance->EGR = TIM_EGR_UG;
+		//TimerFastMB.Instance->EGR = TIM_EGR_UG;
+		params->htim->Instance->EGR = TIM_EGR_UG;
 
 		if (nmbs->msg.fast_mb_mode == mb_begin_scan) {
-
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
 					"%ld run timer win:%d\n", HAL_GetTick(),
 					nmbs->msg.arbitrage_window);
@@ -437,7 +464,10 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 		//CLEAR_BIT(TimerFastMB.Instance->SR, TIM_FLAG_UPDATE);
 		clear_tim_flag(nmbs);
 
-		if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
+		res = params->TIM_Start(nmbs);
+		__HAL_EXIT_CRITICAL_SECTION();
+		//if (HAL_TIM_Base_Start_IT(&TimerFastMB) != HAL_OK) {
+		if (HAL_OK != res) {
 			/* Starting Error */
 			critical_stop();
 		}
@@ -462,7 +492,11 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 			break;
 		} else if (nmbs->msg.arbitrage_window >= 33) { //таймер 3.5 секунды после того как закончился арбитраж сработал
 			//stop timer 3.5 word
-			if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
+			__HAL_ENTER_CRITICAL_SECTION();
+			res = params->TIM_Stop(nmbs);
+			__HAL_EXIT_CRITICAL_SECTION();
+			//if (HAL_TIM_Base_Stop_IT(&TimerFastMB) != HAL_OK) {
+			if (HAL_OK != res) {
 				// Starting Error
 				critical_stop();
 			}
@@ -478,7 +512,7 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 					//(4 байта) серийный номер устройства (big endian)
 					//(1 байт) modbus адрес устройства
 					//(2 байта) контрольная сумма
-					nmbs->msg.i_am_not_scaned = false;	//устройство отсканировано
+					nmbs->msg.i_am_not_scaned = false;//устройство отсканировано
 					answer_scan(nmbs);
 				} else { //если мы отсканированы и выиграли арбитраж (скорее всего отвечаем на команду продолжения сканирования)
 					// все отсканированные устройства отправляют одно и то же сообщение «Конец сканирования»
@@ -489,7 +523,9 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 					end_scan(nmbs);
 				}
 			} else {
-				if (HAL_UART_AbortReceive(&modbusUart) != HAL_OK) {
+				res = params->UART_AbortReceive(nmbs);
+				//if (HAL_UART_AbortReceive(&modbusUart) != HAL_OK) {
+				if (HAL_OK != res) {
 					critical_stop();
 				}
 				nano_RecieveMode(nmbs);
@@ -524,7 +560,8 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 
 		//Если же устройство должно передать рецессивное состояние — оно молчит в течение всего арбитражного окна и слушает шину.
 		//Если из шины за время арбитражного окна был принят байт — другое устройство передало доминантное состояние и арбитраж проигран.
-		if (nmbs->msg.arbitrage_word & (0x80000000 >> nmbs->msg.arbitrage_window)) { //1 - рециссивное состояние — это молчание в
+		if (nmbs->msg.arbitrage_word
+				& (0x80000000 >> nmbs->msg.arbitrage_window)) { //1 - рециссивное состояние — это молчание в
 			MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld silent ",
 					nmbs->msg.arbitrage_window, HAL_GetTick());
 			//течение арбитражного окна, если обнаружили передачу - проиграли
@@ -538,7 +575,8 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 				 //1: Reception on going
 
 			//проверяем есть ли сейчас какая либо передача на линии
-			if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)
+			//if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)
+			if ((__HAL_UART_GET_FLAG(params->huart, UART_FLAG_BUSY) == SET)
 					|| (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3) == GPIO_PIN_RESET)) {
 //				if ((__HAL_UART_GET_FLAG(&modbusUart, UART_FLAG_BUSY) == SET)) {
 				MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG,
@@ -567,6 +605,21 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 bool fast_mb_init(nmbs_t *nmbs) {
 	//вычисление коэффициентов таймера в разных режимах.
 	//Запускать всегда до вызова инициализации таймера
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+	if (params == NULL)
+		return false;
+	if (params->htim == NULL)
+		return false;
+	if (params->htim == NULL)
+		return false;
+	if (params->TIM_Stop == NULL)
+		return false;
+	if (params->TIM_Start == NULL)
+		return false;
+	if (params->UART_Receive == NULL)
+		return false;
+	if (params->UART_AbortReceive == NULL)
+		return false;
 	compute_timer(nmbs);
 	nmbs->msg.fast_mb_mode = mb_none; //работаем как с обычным modbus
 	nmbs->msg.i_am_not_scaned = false;
@@ -582,5 +635,9 @@ bool fast_mb_init(nmbs_t *nmbs) {
 		return false;
 	}
 	return true;
+}
+
+void nmbs_fastmb_arg_create(nmbs_arg_t *nmbs_platform_arg) {
+	memset(nmbs_platform_arg, 0, sizeof(nmbs_arg_t));
 }
 

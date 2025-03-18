@@ -35,23 +35,23 @@
 
 
 /*
-#define COUNTER_TIM_FLAG 200
-inline void clear_tim_flag(nmbs_t *nmbs) {
-	volatile uint16_t counter = COUNTER_TIM_FLAG;
-	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
-	while (!HAL_IS_BIT_SET(params->htim->Instance->SR, TIM_FLAG_UPDATE)
-			&& (counter--)) {
-		if (counter == 0) {
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!!\n ");
-			critical_stop();
-		}
-	}
-	if (counter != COUNTER_TIM_FLAG)
-		//MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "\n!!!clear_tim_flag %d ",counter);
-		MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!clear_tim_flag %d ",counter);
-	CLEAR_BIT(params->htim->Instance->SR, TIM_FLAG_UPDATE);
-}
-*/
+ #define COUNTER_TIM_FLAG 200
+ inline void clear_tim_flag(nmbs_t *nmbs) {
+ volatile uint16_t counter = COUNTER_TIM_FLAG;
+ nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+ while (!HAL_IS_BIT_SET(params->htim->Instance->SR, TIM_FLAG_UPDATE)
+ && (counter--)) {
+ if (counter == 0) {
+ MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!!\n ");
+ critical_stop();
+ }
+ }
+ if (counter != COUNTER_TIM_FLAG)
+ //MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "\n!!!clear_tim_flag %d ",counter);
+ MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n!!!clear_tim_flag %d ",counter);
+ CLEAR_BIT(params->htim->Instance->SR, TIM_FLAG_UPDATE);
+ }
+ */
 extern volatile bool must_reload_rs485;
 extern volatile bool packet_sended; //была ли в текущем цикле передача?
 
@@ -192,20 +192,24 @@ void compute_timer(nmbs_t *nmbs) {
 
 }
 
- HAL_StatusTypeDef UART_Receive_IT(nmbs_t *nmbs){
-	return HAL_UART_Receive_IT(((nmbs_arg_t*) nmbs->platform.arg)->huart, &nmbs->msg.buf[nmbs->msg.buf_rec], 1);
-}
+//HAL_StatusTypeDef UART_Receive(nmbs_t *nmbs){
+//	return HAL_UART_Receive_IT(((nmbs_arg_t*) nmbs->platform.arg)->huart, &nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+//}
 
 void fastmodbus_RecieveMode(nmbs_t *nmbs) {
 	HAL_StatusTypeDef res;
 	strobe_toggle();
-	nmbs->msg.buf_rec=0; //нет смысла забивать этими данными буфер, поэтому всегда обнуляем
+	__HAL_ENTER_CRITICAL_SECTION();
+	//nmbs->msg.buf_rec = 0; //нет смысла забивать этими данными буфер, поэтому всегда обнуляем
+    msg_rec_reset(nmbs); //нет смысла забивать этими данными буфер, поэтому всегда обнуляем
 	SetRS485Receive();
 
 	//Receive of data in IRQ Mode
-	res= ((nmbs_arg_t*) nmbs->platform.arg)->UART_Receive_IT(nmbs);
+	
+	res = ((nmbs_arg_t*) nmbs->platform.arg)->UART_Receive(nmbs);
+	__HAL_EXIT_CRITICAL_SECTION();
 	//if (HAL_UART_Receive_IT(&modbusUart, nmbs.msg.buf, 1) != HAL_OK) {
-	if ( HAL_OK!=res) {
+	if (HAL_OK != res) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error:%d\n",res);
 		critical_stop();
 	}
@@ -215,6 +219,8 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 	HAL_StatusTypeDef res;
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 	strobe_toggle();
+	__HAL_ENTER_CRITICAL_SECTION();
+
 	/* Generate an update event to reload the Prescaler
 	 and the repetition counter (only for advanced timer) value immediately */
 	params->htim->Instance->EGR = TIM_EGR_UG;
@@ -226,16 +232,19 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 		ModbusUart_Init(); //@todo надо тоже отвязать
 	}
 	msg_rec_reset(nmbs);
-	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecieveMode buf_rec:%d\n",
+	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecMode buf_rec:%d\n",
 			HAL_GetTick(), nmbs->msg.buf_rec);
 	//Receive of data in IRQ Mode
-	res = HAL_UART_Receive_IT(params->huart, nmbs->msg.buf, 1); //&modbusUart
+	//res = HAL_UART_Receive_IT(params->huart, nmbs->msg.buf, 1); //&modbusUart
+	res = params->UART_Receive(nmbs);
 	if (res != HAL_OK) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_UART_Receive_IT error %d\n",res);
 		critical_stop();
 	}
 	clear_tim_flag(nmbs);
-	res = params->TIM_Base_Start(nmbs);//  HAL_TIM_Base_Start_IT(&TimerFastMB);
+	res = params->TIM_Start(nmbs);	//  HAL_TIM_Base_Start_IT(&TimerFastMB);
+	__HAL_EXIT_CRITICAL_SECTION();
+
 	if (res != HAL_OK) {
 		/* Starting Error */
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "HAL_TIM_Base_Start_IT error %d\n",res);
@@ -244,18 +253,32 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 
 }
 
-HAL_StatusTypeDef Start_Timer(nmbs_t* nmbs){
+HAL_StatusTypeDef Start_Timer(nmbs_t *nmbs) {
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 	return HAL_TIM_Base_Start_IT(params->htim);
 }
 
-HAL_StatusTypeDef Stop_Timer(nmbs_t* nmbs){
+HAL_StatusTypeDef Stop_Timer(nmbs_t *nmbs) {
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 	return HAL_TIM_Base_Stop_IT(params->htim);
 }
-HAL_StatusTypeDef Receive_Serial(nmbs_t* nmbs){
+HAL_StatusTypeDef Receive_Serial(nmbs_t *nmbs) {
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 
-	return HAL_UART_Receive_IT(params->huart ,
-		&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
+	return HAL_UART_Receive_IT(params->huart, &nmbs->msg.buf[nmbs->msg.buf_rec],
+			1);
+}
+
+HAL_StatusTypeDef Abort_Serial(nmbs_t *nmbs) {
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+
+	return HAL_UART_AbortReceive(params->huart);
+}
+HAL_StatusTypeDef TIM_ReInit(uint8_t timer_mode, nmbs_t *nmbs) {
+	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
+	HAL_StatusTypeDef res = HAL_TIM_Base_DeInit(params->htim);
+	if (HAL_OK != res)
+		return res;
+	return MX_TIM_FastMB_Init(timer_mode, nmbs);//инициализируем таймер на ожидание начала арбитража
+
 }

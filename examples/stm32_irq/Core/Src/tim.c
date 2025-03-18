@@ -25,20 +25,19 @@
 
 //extern uint32_t Speed;
 /*
-extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
-		Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler, Normal_Period;
-*/
+ extern uint32_t FastModbus_Prescaler, Arbitrage_Period, Window_Period,
+ Arbitrage_Periodx60, Window_Periodx60, Normal_Prescaler, Normal_Period;
+ */
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef TimerFastMB;
 
 /* TIM6 init function */
-void MX_TIM_FastMB_Init(uint16_t timer_mode,nmbs_t *nmbs) {
+HAL_StatusTypeDef MX_TIM_FastMB_Init(uint8_t timer_mode, nmbs_t *nmbs) {
 
 	/* USER CODE BEGIN TIM6_Init 0 */
 
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
-
 
 	/* USER CODE END TIM6_Init 0 */
 
@@ -90,43 +89,41 @@ void MX_TIM_FastMB_Init(uint16_t timer_mode,nmbs_t *nmbs) {
 	switch (timer_mode) {
 	case 0:
 		//normal 3.5 mode timer
-		TimerFastMB.Init.Prescaler = params->Normal_Prescaler;
-		TimerFastMB.Init.Period = params->Normal_Period;
+		params->htim->Init.Prescaler = params->Normal_Prescaler;
+		params->htim->Init.Period = params->Normal_Period;
 
 		break;
 	case 1:
 		// begin arbitrage max(3 symbols, (12 bits + 800us)) для новой 0x46
-		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
-		TimerFastMB.Init.Period = params->Arbitrage_Period;
+		params->htim->Init.Prescaler = params->FastModbus_Prescaler;
+		params->htim->Init.Period = params->Arbitrage_Period;
 
 		break;
 	case 2:
 		// arbitrage windows для новой 0x46
-		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
-		TimerFastMB.Init.Period = params->Window_Period;
+		params->htim->Init.Prescaler = params->FastModbus_Prescaler;
+		params->htim->Init.Period = params->Window_Period;
 		break;
 	case 3:
 		// begin arbitrage max(3 symbols, (12 bits + 800us)) для старой 0x60
-		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
-		TimerFastMB.Init.Period = params->Arbitrage_Periodx60;
+		params->htim->Init.Prescaler = params->FastModbus_Prescaler;
+		params->htim->Init.Period = params->Arbitrage_Periodx60;
 
 		break;
 	case 4:
 		// arbitrage windows для старой 0x60
-		TimerFastMB.Init.Prescaler = params->FastModbus_Prescaler;
-		TimerFastMB.Init.Period = params->Window_Periodx60;
+		params->htim->Init.Prescaler = params->FastModbus_Prescaler;
+		params->htim->Init.Period = params->Window_Periodx60;
 		break;
 	default:
 		Error_Handler();
 	}
 
 	/* USER CODE END TIM6_Init 1 */
-	TimerFastMB.Instance = TIM6;
-	TimerFastMB.Init.CounterMode = TIM_COUNTERMODE_UP;
-	TimerFastMB.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-	if (HAL_TIM_Base_Init(&TimerFastMB) != HAL_OK) {
-		Error_Handler();
-	}
+	params->htim->Instance = TIM6;
+	params->htim->Init.CounterMode = TIM_COUNTERMODE_UP;
+	params->htim->Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+	return HAL_TIM_Base_Init(params->htim);
 	/* USER CODE BEGIN TIM6_Init 2 */
 
 	/* USER CODE END TIM6_Init 2 */
