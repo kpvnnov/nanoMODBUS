@@ -620,6 +620,8 @@ bool fast_mb_init(nmbs_t *nmbs) {
 		return false;
 	if (params->UART_AbortReceive == NULL)
 		return false;
+	if (params->TIM_ReInit == NULL)
+		return false;
 	compute_timer(nmbs);
 	nmbs->msg.fast_mb_mode = mb_none; //работаем как с обычным modbus
 	nmbs->msg.i_am_not_scaned = false;

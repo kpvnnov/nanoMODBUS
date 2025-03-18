@@ -63,7 +63,7 @@ HAL_StatusTypeDef Start_Timer(nmbs_t *nmbs);
 HAL_StatusTypeDef Stop_Timer(nmbs_t *nmbs);
 HAL_StatusTypeDef Receive_Serial(nmbs_t *nmbs);
 HAL_StatusTypeDef Abort_Serial(nmbs_t* nmbs);
-HAL_StatusTypeDef TIM_ReInit(uint8_t,nmbs_t* nmbs);
+HAL_StatusTypeDef TIM_ReStart(uint8_t,nmbs_t* nmbs);
 
 #ifdef COM_PORT_DEBUG
 

@@ -659,6 +659,7 @@ int main(void) {
 	nmbs_arg.TIM_Stop = Stop_Timer; //остановка прерываний таймера
 	nmbs_arg.UART_Receive = Receive_Serial; //запуск приёма символов по rs485
 	nmbs_arg.UART_AbortReceive = Abort_Serial; //остановка приема
+    nmbs_arg.TIM_ReInit=TIM_ReStart; //реинициализация таймера на новый период
 
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);
@@ -679,7 +680,12 @@ int main(void) {
 			//вычисление коэффициентов таймера в разных режимах.
 			//Запускать всегда до вызова инициализации таймера
 			//!!и после инициализации nmbs_arg
-	MX_TIM_FastMB_Init(0, &nmbs);
+	if (MX_TIM_FastMB_Init(0, &nmbs)!= HAL_OK){
+		while (1) {
+			RED_TOGGLE();
+			HAL_Delay(250);
+		}
+	}	
 
 
 	/* USER CODE END 2 */

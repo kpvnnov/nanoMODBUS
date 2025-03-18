@@ -274,11 +274,11 @@ HAL_StatusTypeDef Abort_Serial(nmbs_t *nmbs) {
 
 	return HAL_UART_AbortReceive(params->huart);
 }
-HAL_StatusTypeDef TIM_ReInit(uint8_t timer_mode, nmbs_t *nmbs) {
+HAL_StatusTypeDef TIM_ReStart(uint8_t timer_mode, nmbs_t *nmbs) {
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 	HAL_StatusTypeDef res = HAL_TIM_Base_DeInit(params->htim);
 	if (HAL_OK != res)
 		return res;
-	return MX_TIM_FastMB_Init(timer_mode, nmbs);//инициализируем таймер на ожидание начала арбитража
+	return MX_TIM_FastMB_Init(timer_mode, nmbs);//инициализируем таймер на указанный режим
 
 }
