@@ -258,7 +258,7 @@ int32_t write_serial(const uint8_t *buf, uint16_t count,
 	HAL_StatusTypeDef res;
 	//перенесли отмену приёма в таймер
 	__HAL_ENTER_CRITICAL_SECTION();
-	if (HAL_UART_STATE_BUSY_RX == modbusUart.gState) {
+	if (HAL_UART_STATE_BUSY_RX == modbusUart.RxState ) {
 		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"!!!write_serial wrong HAL_UART_STATE_BUSY_RX\n");
 		res = HAL_UART_AbortReceive(&modbusUart);
 		if (res != HAL_OK) {
@@ -659,7 +659,7 @@ int main(void) {
 	nmbs_arg.TIM_Stop = Stop_Timer; //остановка прерываний таймера
 	nmbs_arg.UART_Receive = Receive_Serial; //запуск приёма символов по rs485
 	nmbs_arg.UART_AbortReceive = Abort_Serial; //остановка приема
-    nmbs_arg.TIM_ReInit=TIM_ReStart; //реинициализация таймера на новый период
+	nmbs_arg.TIM_ReInit=TIM_ReStart; //реинициализация таймера на новый период
 
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);

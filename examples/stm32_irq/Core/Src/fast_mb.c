@@ -171,6 +171,7 @@ void UART_RxCplt(nmbs_t *nmbs) {
 	case mb_none:	//продолжаем обычный приём
 		strobe_toggle();
 		if (msg_buf_inc(nmbs)) {
+			__HAL_ENTER_CRITICAL_SECTION();
 			switch (check_fast_modbus(nmbs, 5)) {	//проверяем 5 байт
 			case fast_mb_none: //продолжаем приём данных как обычно
 				//restart 3.5 timer
@@ -270,6 +271,7 @@ void UART_RxCplt(nmbs_t *nmbs) {
 			//Receive next symbol
 			//res = HAL_UART_Receive_IT(&modbusUart,&nmbs->msg.buf[nmbs->msg.buf_rec], 1);
 			res = params->UART_Receive(nmbs);
+			__HAL_EXIT_CRITICAL_SECTION();
 			if (HAL_OK != res) {
 				MP_FMB_DEBUG_PRINT(DEBUG_ERROR,
 						"UART_RxCplt HAL_UART_Receive_IT error %d\n",res);
@@ -589,6 +591,11 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 				if (!nmbs->msg.arbitrage_loss) {
 					//SetRS485Transmit(); //попробуем передатчик включить заранее
 					strobe_toggle();
+					res = params->UART_AbortReceive(nmbs);
+					//if (HAL_UART_AbortReceive(&modbusUart) != HAL_OK) {
+					if (HAL_OK != res) {
+						critical_stop();
+					}
 					write_serial(FF, 1, 0, &nmbs->platform.arg);
 					MP_FMB_DEBUG_PRINT(FM_LEVEL_HIGH_DEBUG, "w%02d %ld FF ",
 							nmbs->msg.arbitrage_window, HAL_GetTick());

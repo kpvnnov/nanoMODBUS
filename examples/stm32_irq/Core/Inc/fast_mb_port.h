@@ -85,7 +85,7 @@ static inline void clear_tim_flag(nmbs_t *nmbs) {
 	while (!HAL_IS_BIT_SET(params->htim->Instance->SR, TIM_FLAG_UPDATE)
 			&& (counter--)) {
 		if (counter == 0) {
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!! %02x\n ",params->htim->Instance->SR);
+			MP_FMB_DEBUG_PRINT(DEBUG_ERROR, "\n!!BUG clear_tim_flag!! %02lx\n ",params->htim->Instance->SR);
 			critical_stop();
 		}
 	}
