@@ -59,7 +59,10 @@ nmbs_error answer_scan(nmbs_t *nmbs);
 
 //extern nmbs_t nmbs; //все обращения перенесём внутрь структуры nmbs_arg
 extern volatile bool packet_sended;
-extern volatile bool must_reload_rs485;
+//смену скорости rs485 лучше сделать по окончании передачи пакета, когда поднимается этот флаг
+//упраздним его, окончание передачи и так известно
+// будем просто по reload_rs485
+//extern volatile bool must_reload_rs485;
 
 void make_arbitrage_data(nmbs_t *nmbs) {
 	if (nmbs->msg.i_am_not_scaned) {

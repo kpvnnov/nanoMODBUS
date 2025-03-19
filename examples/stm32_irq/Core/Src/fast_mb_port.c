@@ -33,7 +33,6 @@
 #include "fast_mb.h"
 #include "fast_mb_port.h"
 
-
 /*
  #define COUNTER_TIM_FLAG 200
  inline void clear_tim_flag(nmbs_t *nmbs) {
@@ -52,7 +51,12 @@
  CLEAR_BIT(params->htim->Instance->SR, TIM_FLAG_UPDATE);
  }
  */
-extern volatile bool must_reload_rs485;
+//смену скорости rs485 лучше сделать по окончании передачи пакета, когда поднимается этот флаг
+//упраздним его, окончание передачи и так известно
+// будем просто по reload_rs485
+//extern volatile bool must_reload_rs485;
+extern volatile bool reload_rs485;
+
 extern volatile bool packet_sended; //была ли в текущем цикле передача?
 
 
@@ -261,8 +265,8 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 	params->htim->Instance->EGR = TIM_EGR_UG;
 	SetRS485Receive();
 	packet_sended = false;
-	if (must_reload_rs485) { //надо перезапустить RS-485 с новыми коммуникационными параметрами
-		must_reload_rs485 = false;
+	if (reload_rs485) { //надо перезапустить RS-485 с новыми коммуникационными параметрами
+		reload_rs485 = false;
 		HAL_UART_DeInit(params->huart); //&modbusUart
 		ModbusUart_Init(); //@todo надо тоже отвязать
 	}
@@ -303,7 +307,7 @@ HAL_StatusTypeDef Receive_Serial(nmbs_t *nmbs) {
 	return HAL_UART_Receive_IT(params->huart, &nmbs->msg.buf[nmbs->msg.buf_rec],
 			1);
 }
-HAL_StatusTypeDef Transmit_Serial(nmbs_t *nmbs , uint8_t *pData, uint16_t Size) {
+HAL_StatusTypeDef Transmit_Serial(nmbs_t *nmbs, uint8_t *pData, uint16_t Size) {
 //	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs_arg);
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
 	return HAL_UART_Transmit_IT(params->huart, pData, Size);

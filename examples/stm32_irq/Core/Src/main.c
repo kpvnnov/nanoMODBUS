@@ -111,7 +111,10 @@ volatile bool config_otladka_strobe = true;
 volatile bool config_otladka_comport = true;
 
 //смену скорости rs485 лучше сделать по окончании передачи пакета, когда поднимается этот флаг
-volatile bool must_reload_rs485 = false;
+//упраздним его, окончание передачи и так известно
+// будем просто по reload_rs485
+//volatile bool must_reload_rs485 = false;
+volatile bool reload_rs485 = false;
 
 // A single nmbs_bitfield variable can keep 2000 coils
 nmbs_bitfield server_coils = { 0 };
@@ -251,35 +254,35 @@ int32_t read_from_buf(uint8_t *buf, uint16_t count, int32_t byte_timeout_ms,
 			count : (nmbs.msg.buf_rec - nmbs.msg.buf_idx));
 }
 /*
-int32_t write_serial(const uint8_t *buf, uint16_t count,
-		int32_t byte_timeout_ms, void *arg) {
+ int32_t write_serial(const uint8_t *buf, uint16_t count,
+ int32_t byte_timeout_ms, void *arg) {
 
-	packet_sended = true;
-	HAL_StatusTypeDef res;
-	//перенесли отмену приёма в таймер
-	__HAL_ENTER_CRITICAL_SECTION();
-	if (HAL_UART_STATE_BUSY_RX == modbusUart.RxState ) {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"!!!write_serial wrong HAL_UART_STATE_BUSY_RX\n");
-		res = HAL_UART_AbortReceive(&modbusUart);
-		if (res != HAL_OK) {
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"write_serial UART_AbortReceive error %d\n", res);
-			critical_stop();
-		}
-	}
-	if (modbusUart.gState == HAL_UART_STATE_READY) {
-		SetRS485Transmit();
-		res = HAL_UART_Transmit_IT(&modbusUart, buf, count);
-		if (res != HAL_OK) {
-			MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Transmit_IT error %d\n", res);
-			critical_stop();
-		}
-	} else {
-		MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld write_serial HAL_UART_Transmit_IT \n", modbusUart.gState);
-	}
-	__HAL_EXIT_CRITICAL_SECTION();
-	return count;
-}
-*/
+ packet_sended = true;
+ HAL_StatusTypeDef res;
+ //перенесли отмену приёма в таймер
+ __HAL_ENTER_CRITICAL_SECTION();
+ if (HAL_UART_STATE_BUSY_RX == modbusUart.RxState ) {
+ MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"!!!write_serial wrong HAL_UART_STATE_BUSY_RX\n");
+ res = HAL_UART_AbortReceive(&modbusUart);
+ if (res != HAL_OK) {
+ MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"write_serial UART_AbortReceive error %d\n", res);
+ critical_stop();
+ }
+ }
+ if (modbusUart.gState == HAL_UART_STATE_READY) {
+ SetRS485Transmit();
+ res = HAL_UART_Transmit_IT(&modbusUart, buf, count);
+ if (res != HAL_OK) {
+ MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"HAL_UART_Transmit_IT error %d\n", res);
+ critical_stop();
+ }
+ } else {
+ MP_FMB_DEBUG_PRINT(DEBUG_ERROR,"error state:%ld write_serial HAL_UART_Transmit_IT \n", modbusUart.gState);
+ }
+ __HAL_EXIT_CRITICAL_SECTION();
+ return count;
+ }
+ */
 
 nmbs_error handle_read_coils(uint16_t address, uint16_t quantity,
 		nmbs_bitfield coils_out, uint8_t unit_id, void *arg) {
@@ -661,7 +664,7 @@ int main(void) {
 	nmbs_arg.UART_Receive = Receive_Serial; //запуск приёма символов по rs485
 	nmbs_arg.UART_Transmit = Transmit_Serial; //запуск передачи буфера
 	nmbs_arg.UART_AbortReceive = Abort_Serial; //остановка приема
-	nmbs_arg.TIM_ReInit=TIM_ReStart; //реинициализация таймера на новый период
+	nmbs_arg.TIM_ReInit = TIM_ReStart; //реинициализация таймера на новый период
 
 	nmbs_error err = nmbs_server_create(&nmbs, RTU_SERVER_ADDRESS,
 			&platform_conf, &callbacks);
@@ -682,12 +685,12 @@ int main(void) {
 			//вычисление коэффициентов таймера в разных режимах.
 			//Запускать всегда до вызова инициализации таймера
 			//!!и после инициализации nmbs_arg
-	if (MX_TIM_FastMB_Init(0, &nmbs)!= HAL_OK){
+	if (MX_TIM_FastMB_Init(0, &nmbs) != HAL_OK) {
 		while (1) {
 			RED_TOGGLE();
 			HAL_Delay(250);
 		}
-	}	
+	}
 
 
 	/* USER CODE END 2 */
