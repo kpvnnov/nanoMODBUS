@@ -507,6 +507,11 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 					nmbs->msg.arbitrage_window);
 			nmbs->msg.fast_mb_mode = mb_none; //после ответа (если он будет) продолжаем обычный приём
 			if (!nmbs->msg.arbitrage_loss) { // если мы выиграли арбитраж, то надо ответить, сделаем процедуру для этого
+				res = params->UART_AbortReceive(nmbs);
+				//if (HAL_UART_AbortReceive(&modbusUart) != HAL_OK) {
+				if (HAL_OK != res) {
+					critical_stop();
+				}
 				if (nmbs->msg.i_am_not_scaned) { //если мы ещё не отсканированы, то отвечаем такой командой
 					//(1 байт) 0xFD широковещательный адрес
 					//(1 байт) 0x46 команда работы с расширенными функциями
