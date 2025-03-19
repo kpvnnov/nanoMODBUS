@@ -268,6 +268,8 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 			//запускаем Deinit только если была первоначальная иницализация
 			HAL_UART_DeInit(params->huart); //&modbusUart
 		}
+		ModbusUart_Init(); //@todo надо тоже отвязать
+
 		if (!fast_mb_init(nmbs)) {
 			Error_Handler();
 			/*while (1) {
@@ -275,10 +277,10 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 			 HAL_Delay(250);
 			 } */
 		}
-			//инициализация коэффициентов идёт в процедуре fast_mb_init
-			//вычисление коэффициентов таймера в разных режимах.
-			//Запускать всегда до вызова инициализации таймера
-			//!!и после инициализации nmbs_arg
+		//инициализация коэффициентов идёт в процедуре fast_mb_init
+		//вычисление коэффициентов таймера в разных режимах.
+		//Запускать всегда до вызова инициализации таймера
+		//!!и после инициализации nmbs_arg
 		if (MX_TIM_FastMB_Init(0, nmbs) != HAL_OK) {
 			Error_Handler();
 			/*while (1) {
@@ -286,8 +288,6 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 			 HAL_Delay(250);
 			 } */
 		}
-
-		ModbusUart_Init(); //@todo надо тоже отвязать
 	}
 	/* Generate an update event to reload the Prescaler
 	 and the repetition counter (only for advanced timer) value immediately */
