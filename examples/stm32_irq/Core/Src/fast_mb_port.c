@@ -260,16 +260,39 @@ void nano_RecieveMode(nmbs_t *nmbs) {
 	strobe_toggle();
 	__HAL_ENTER_CRITICAL_SECTION();
 
-	/* Generate an update event to reload the Prescaler
-	 and the repetition counter (only for advanced timer) value immediately */
-	params->htim->Instance->EGR = TIM_EGR_UG;
 	SetRS485Receive();
 	packet_sended = false;
 	if (reload_rs485) { //надо перезапустить RS-485 с новыми коммуникационными параметрами
 		reload_rs485 = false;
-		HAL_UART_DeInit(params->huart); //&modbusUart
+		if (params->huart->Instance) {
+			//запускаем Deinit только если была первоначальная иницализация
+			HAL_UART_DeInit(params->huart); //&modbusUart
+		}
+		if (!fast_mb_init(nmbs)) {
+			Error_Handler();
+			/*while (1) {
+			 RED_TOGGLE();
+			 HAL_Delay(250);
+			 } */
+		}
+			//инициализация коэффициентов идёт в процедуре fast_mb_init
+			//вычисление коэффициентов таймера в разных режимах.
+			//Запускать всегда до вызова инициализации таймера
+			//!!и после инициализации nmbs_arg
+		if (MX_TIM_FastMB_Init(0, nmbs) != HAL_OK) {
+			Error_Handler();
+			/*while (1) {
+			 RED_TOGGLE();
+			 HAL_Delay(250);
+			 } */
+		}
+
 		ModbusUart_Init(); //@todo надо тоже отвязать
 	}
+	/* Generate an update event to reload the Prescaler
+	 and the repetition counter (only for advanced timer) value immediately */
+	params->htim->Instance->EGR = TIM_EGR_UG;
+
 	msg_rec_reset(nmbs);
 	MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG, "\n%ld nano_RecMode buf_rec:%d\n",
 			HAL_GetTick(), nmbs->msg.buf_rec);

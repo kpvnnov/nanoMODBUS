@@ -640,7 +640,7 @@ int main(void) {
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
 	MX_USART1_UART_Init();
-	ModbusUart_Init();
+//	ModbusUart_Init(); //перенесено в nano_RecieveMode в блок переинициализации скорости
 
 	/* USER CODE BEGIN 2 */
 
@@ -672,15 +672,19 @@ int main(void) {
 		onError(err);
 	//запускать строго после nmbs_server_create
 	nmbs_set_platform_arg(&nmbs, &nmbs_arg);
+/* //перенесено в nano_RecieveMode в блок переинициализации скорости
 	if (!fast_mb_init(&nmbs)) {
 		while (1) {
 			RED_TOGGLE();
 			HAL_Delay(250);
 		}
 	}
+*/
 	nmbs.msg.fastmodbus_address = 4265607340; //(dec) или 0xFE4000AC 32 битный уникальный fastmodbus адрес устройства
 //nmbs.msg.fastmodbus_address = 40;
 //nmbs.msg.fastmodbus_address = 4294967040;
+//перенесено в nano_RecieveMode в блок переинициализации скорости
+/*
 			//инициализация коэффициентов идёт в процедуре fast_mb_init
 			//вычисление коэффициентов таймера в разных режимах.
 			//Запускать всегда до вызова инициализации таймера
@@ -691,6 +695,7 @@ int main(void) {
 			HAL_Delay(250);
 		}
 	}
+*/
 
 
 	/* USER CODE END 2 */
@@ -698,6 +703,7 @@ int main(void) {
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */
 //run server in interrupt mode
+        reload_rs485=true; //nano_RecieveMode надо первоначально запустить блок переинициализации скорости
 	nano_RecieveMode(&nmbs);
 	//((nmbs_arg_t*) nmbs.platform.arg)->nano_RecieveMode(&nmbs);
 	while (1) {
@@ -767,6 +773,8 @@ void Error_Handler(void) {
 	/* User can add his own implementation to report the HAL error return state */
 	__disable_irq();
 	while (1) {
+				RED_TOGGLE();
+				HAL_Delay(250);
 	}
 	/* USER CODE END Error_Handler_Debug */
 }

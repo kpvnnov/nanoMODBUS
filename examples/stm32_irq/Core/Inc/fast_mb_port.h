@@ -84,7 +84,7 @@ static inline void strobe_toggle() {
 #define strobe_toggle() (void) (0)
 #endif
 
-#define COUNTER_TIM_FLAG 200
+#define COUNTER_TIM_FLAG 50
 static inline void clear_tim_flag(nmbs_t *nmbs) {
 	volatile uint16_t counter = COUNTER_TIM_FLAG;
 	nmbs_arg_t *params = ((nmbs_arg_t*) nmbs->platform.arg);
