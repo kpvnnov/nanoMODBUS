@@ -214,6 +214,7 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 uint16_t get_baudrate();
+uint8_t get_inactivity();
 
 bool UART_Debug_Transmit(UART_HandleTypeDef *huart);
 /* USER CODE END EFP */

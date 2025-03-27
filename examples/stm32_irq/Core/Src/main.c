@@ -103,6 +103,11 @@ uint16_t get_baudrate() {
 }
 nmbs_t nmbs;
 nmbs_arg_t nmbs_arg;
+//счётчик неактивности обращения к устройству
+volatile uint16_t inactivity_modbus;
+//счётчик простоя обращения к устройству, по достижении нуля сбрасывает DO AO
+volatile uint8_t counter_inactivity = 0;
+
 volatile bool packet_sended = false; //была ли в текущем цикле передача?
 //volatile bool old_arbitrage;
 //переменная отвечающая за включение отладки дергания ногой
@@ -298,6 +303,9 @@ nmbs_error handle_read_coils(uint16_t address, uint16_t quantity,
 }
 char* get_string_module() {
 	return "6DO8DI";
+}
+uint8_t get_inactivity() {
+    return 10;
 }
 
 nmbs_error read_input_holding(bool is_holding, uint16_t address,

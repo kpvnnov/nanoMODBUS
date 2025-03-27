@@ -366,6 +366,10 @@ void UART_RxCplt(nmbs_t *nmbs) {
 		critical_stop();
 	}
 }
+//счётчик неактивности обращения к устройству
+extern volatile uint16_t inactivity_modbus;
+//счётчик неактивности
+extern volatile uint8_t counter_inactivity;
 
 void Timer_FastModbus(nmbs_t *nmbs) {
 	HAL_StatusTypeDef res;
@@ -398,6 +402,15 @@ void Timer_FastModbus(nmbs_t *nmbs) {
 			}
 
 			packet_sended = false; //надо знать была ли передача данных
+
+			//@todo надо вынести отсюда эти счётчики
+			if (nmbs->msg.buf[0] == get_modbusaddress()) { //если это наш адрес
+				inactivity_modbus = 0; //сбрасываем счётчик неактивности, надо перестать мигать бесполезные вещи и начать мигать правильные вещи
+				if (get_inactivity() != 0) { //если установлен счётчик сброса выходов
+					counter_inactivity = 0; //надо сбросить счётчик, который считает на увеличение секунд отсутствия обмена с устройством, по достижении которого обнуляются выходы устройства
+				}
+			}
+			//@todo надо вынести отсюда эти счётчики
 			nmbs_error res_poll = nmbs_server_poll(nmbs);
 			if (NMBS_ERROR_NONE != res_poll) {
 				MP_FMB_DEBUG_PRINT(FM_LEVEL_DEBUG,
@@ -639,7 +652,7 @@ bool fast_mb_init(nmbs_t *nmbs) {
 		return false;
 	if (params->TIM_ReInit == NULL)
 		return false;
-	params->my_nmsb=nmbs;
+	params->my_nmsb = nmbs;
 	compute_timer(nmbs);
 	nmbs->msg.fast_mb_mode = mb_none; //работаем как с обычным modbus
 	nmbs->msg.i_am_not_scaned = false;
