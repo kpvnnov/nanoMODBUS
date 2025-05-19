@@ -103,11 +103,6 @@ uint16_t get_baudrate() {
 }
 nmbs_t nmbs;
 nmbs_arg_t nmbs_arg;
-//счётчик неактивности обращения к устройству
-volatile uint16_t inactivity_modbus;
-//счётчик простоя обращения к устройству, по достижении нуля сбрасывает DO AO
-volatile uint8_t counter_inactivity = 0;
-
 volatile bool packet_sended = false; //была ли в текущем цикле передача?
 //volatile bool old_arbitrage;
 //переменная отвечающая за включение отладки дергания ногой
@@ -185,7 +180,6 @@ void flush_debug() {
 		volatile bool fast_quit = false;
 		if (pos_print <= pos_debug) { //нормальный ход
 			//if (!from_isr)
-			//__disable_irq();
 			__HAL_ENTER_CRITICAL_SECTION();
 			int len_for_send = pos_debug - pos_print;
 			int pos_for_send = pos_print;
@@ -196,7 +190,6 @@ void flush_debug() {
 			}
 
 			//if (!from_isr)
-			//	__enable_irq();
 			__HAL_EXIT_CRITICAL_SECTION();
 			if (fast_quit)
 				return;
@@ -210,13 +203,11 @@ void flush_debug() {
 
 		} else {    	//отправим до конца массива и сдвигаем указатель на ноль
 			//if (!from_isr)
-			//	__disable_irq();
 			__HAL_ENTER_CRITICAL_SECTION();
 			int len_for_send = sizeof(debug_buffer) - pos_print;
 			int pos_for_send = pos_print;
 			pos_print = 0;
 			//if (!from_isr)
-			//	__enable_irq();
 			__HAL_EXIT_CRITICAL_SECTION();
 
 			if ((pos_for_send + len_for_send) > sizeof(debug_buffer)) {
@@ -303,9 +294,6 @@ nmbs_error handle_read_coils(uint16_t address, uint16_t quantity,
 }
 char* get_string_module() {
 	return "6DO8DI";
-}
-uint8_t get_inactivity() {
-    return 10;
 }
 
 nmbs_error read_input_holding(bool is_holding, uint16_t address,
