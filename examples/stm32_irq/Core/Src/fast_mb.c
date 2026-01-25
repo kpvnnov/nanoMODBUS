@@ -120,8 +120,8 @@ fast_mb_command check_fast_modbus(nmbs_t *nmbs, uint8_t length) {
 			return fast_mb_none;
 		}
 		//проверяем наш ли это серийный номер
-		if (((nmbs->msg.buf[3] << 24) & (nmbs->msg.buf[4] << 16)
-				& (nmbs->msg.buf[5] << 8) & (nmbs->msg.buf[6]))
+		if (((nmbs->msg.buf[3] << 24) | (nmbs->msg.buf[4] << 16)
+				| (nmbs->msg.buf[5] << 8) | (nmbs->msg.buf[6]))
 				!= nmbs->msg.fastmodbus_address)
 			return fast_mb_none;
 		return fast_mb_emulate;
